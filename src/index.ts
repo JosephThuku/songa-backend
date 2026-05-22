@@ -1,5 +1,6 @@
 // NEW — server entrypoint.
 
+import "dotenv/config";
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
 import { logger } from "./lib/logger.js";

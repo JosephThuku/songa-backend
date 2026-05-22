@@ -1,9 +1,13 @@
-// NEW — /api/auth/* routes.
+// /api/auth/* routes. Request schemas live in src/schemas/auth.schema.ts
+// (single source of truth for both runtime validation and OpenAPI docs).
 
 import { Router } from "express";
-import { z } from "zod";
 import { AppError, asyncHandler } from "../lib/errors.js";
 import { SESSION_TTL_SECONDS } from "../lib/jwt.js";
+import {
+  SendOtpRequestSchema as sendOtpBodySchema,
+  VerifyOtpRequestSchema as verifyOtpBodySchema,
+} from "../schemas/auth.schema.js";
 import { rateLimit, requestIp } from "../middleware/rate-limit.js";
 import {
   requireAuth,
@@ -17,28 +21,7 @@ import {
   verifyOtp,
 } from "../services/auth.service.js";
 
-const router = Router();
-
-const roleSchema = z.enum(["passenger", "driver"], {
-  errorMap: () => ({ message: "role must be 'passenger' or 'driver'" }),
-});
-
-const sendOtpBodySchema = z
-  .object({
-    phone: z.string({ required_error: "phone is required" }).min(1, "phone is required"),
-    role: roleSchema,
-  })
-  .strict();
-
-const verifyOtpBodySchema = z
-  .object({
-    phone: z.string({ required_error: "phone is required" }).min(1, "phone is required"),
-    role: roleSchema,
-    code: z
-      .string({ required_error: "code is required" })
-      .regex(/^\d{4,6}$/, "code must be 4–6 digits"),
-  })
-  .strict();
+const router: Router = Router();
 
 // ---------- POST /api/auth/otp/send ----------
 router.post(

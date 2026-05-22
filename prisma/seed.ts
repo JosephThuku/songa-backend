@@ -1,5 +1,6 @@
 // NEW — idempotent seed: 1 passenger + 1 driver
 
+import "dotenv/config";
 import { PrismaClient, UserRole, OnboardingStatus } from "@prisma/client";
 import cuid from "cuid";
 
