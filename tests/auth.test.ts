@@ -129,6 +129,8 @@ describe("POST /api/auth/otp/verify", () => {
     });
     // Passenger MUST NOT have driverProfile.
     expect(user.driverProfile).toBeUndefined();
+    // First-time verify is a signup.
+    expect(res.body.isNewUser).toBe(true);
   });
 
   it("for a driver, user includes driverProfile with onboardingStatus=approved", async () => {
@@ -206,6 +208,81 @@ describe("POST /api/auth/otp/verify", () => {
     expect(rp.body.user.role).toBe("passenger");
     expect(rd.body.user.role).toBe("driver");
     expect(rp.body.user.phone).toBe(rd.body.user.phone);
+  });
+
+  // ---------- Signup (name / email + isNewUser flag) ----------
+
+  it("first-time verify with name+email creates a user with those fields", async () => {
+    const app = buildTestApp();
+    const { devCode } = await sendOtpAndGetCode(app, VALID_PHONE, "passenger");
+    const res = await request(app).post("/api/auth/otp/verify").send({
+      phone: VALID_PHONE,
+      role: "passenger",
+      code: devCode,
+      name: "John Doe",
+      email: "john@example.com",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.isNewUser).toBe(true);
+    expect(res.body.user.name).toBe("John Doe");
+    expect(res.body.user.email).toBe("john@example.com");
+  });
+
+  it("returning verify with name+email does NOT overwrite existing user fields", async () => {
+    const app = buildTestApp();
+
+    // First verify creates the user with "John Doe" / john@example.com
+    const a = await sendOtpAndGetCode(app, VALID_PHONE, "passenger");
+    const r1 = await request(app).post("/api/auth/otp/verify").send({
+      phone: VALID_PHONE,
+      role: "passenger",
+      code: a.devCode,
+      name: "John Doe",
+      email: "john@example.com",
+    });
+    expect(r1.status).toBe(200);
+    expect(r1.body.isNewUser).toBe(true);
+
+    // Second verify tries to change to "Jane Smith" — should be ignored.
+    const b = await sendOtpAndGetCode(app, VALID_PHONE, "passenger");
+    const r2 = await request(app).post("/api/auth/otp/verify").send({
+      phone: VALID_PHONE,
+      role: "passenger",
+      code: b.devCode,
+      name: "Jane Smith",
+      email: "jane@example.com",
+    });
+    expect(r2.status).toBe(200);
+    expect(r2.body.isNewUser).toBe(false);
+    expect(r2.body.user.name).toBe("John Doe");
+    expect(r2.body.user.email).toBe("john@example.com");
+    expect(r2.body.user.id).toBe(r1.body.user.id);
+  });
+
+  it("invalid email is rejected with 400", async () => {
+    const app = buildTestApp();
+    const { devCode } = await sendOtpAndGetCode(app, VALID_PHONE, "passenger");
+    const res = await request(app).post("/api/auth/otp/verify").send({
+      phone: VALID_PHONE,
+      role: "passenger",
+      code: devCode,
+      email: "not-an-email",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("INVALID_INPUT");
+  });
+
+  it("name with whitespace is trimmed", async () => {
+    const app = buildTestApp();
+    const { devCode } = await sendOtpAndGetCode(app, VALID_PHONE, "passenger");
+    const res = await request(app).post("/api/auth/otp/verify").send({
+      phone: VALID_PHONE,
+      role: "passenger",
+      code: devCode,
+      name: "   Alice Wanjiru   ",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe("Alice Wanjiru");
   });
 });
 

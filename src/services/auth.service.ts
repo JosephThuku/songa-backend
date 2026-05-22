@@ -15,6 +15,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { prisma } from "../lib/prisma.js";
 import { getRedis } from "../lib/redis.js";
 import { toUserDto, type UserDto } from "../lib/responses.js";
+import { getSmsProvider } from "../lib/sms.js";
 
 export type Role = "passenger" | "driver";
 
@@ -36,11 +37,15 @@ export interface VerifyOtpInput {
   code: string;
   userAgent?: string | null;
   ip?: string | null;
+  // Optional signup fields — only used when this verify creates a new user.
+  name?: string;
+  email?: string;
 }
 
 export interface VerifyOtpResult {
   sessionToken: string;
   user: UserDto;
+  isNewUser: boolean;
 }
 
 export interface MeResult {
@@ -66,6 +71,23 @@ export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
 
   if (process.env.NODE_ENV !== "production") {
     logger.info({ phone, role, code }, "Dev OTP issued");
+  }
+
+  // Dispatch via the configured SMS provider. We do NOT fail the API call if
+  // SMS delivery fails — log it and let the caller retry. The OTP is already
+  // stored, so a successful subsequent send wouldn't invalidate it.
+  const sms = getSmsProvider();
+  const result = await sms
+    .send({
+      to: phone,
+      body: `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`,
+    })
+    .catch((err: unknown) => {
+      logger.error({ err, phone }, "SMS send threw");
+      return { ok: false, provider: sms.name, error: String(err) } as const;
+    });
+  if (!result.ok) {
+    logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
   }
 
   return {
@@ -98,17 +120,25 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult>
     throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
   }
 
-  // Get-or-create user by (phone, role)
-  const user = await prisma.user.upsert({
+  // Get-or-create user by (phone, role). Apply optional signup fields ONLY on
+  // first create — never overwrite existing users from this endpoint.
+  const existing = await prisma.user.findUnique({
     where: { phone_role: { phone, role: toPrismaRole(role) } },
-    update: {},
-    create: {
-      id: `usr_${cuid()}`,
-      phone,
-      role: toPrismaRole(role),
-    },
     include: { driverProfile: true },
   });
+  const isNewUser = !existing;
+  const user = existing
+    ? existing
+    : await prisma.user.create({
+        data: {
+          id: `usr_${cuid()}`,
+          phone,
+          role: toPrismaRole(role),
+          name: input.name ?? null,
+          email: input.email ?? null,
+        },
+        include: { driverProfile: true },
+      });
 
   // Ensure driver profile exists for driver role (Stage 1 short-circuit: approved)
   let driverProfile = user.driverProfile ?? null;
@@ -146,6 +176,7 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult>
   return {
     sessionToken: token,
     user: toUserDto(user, driverProfile),
+    isNewUser,
   };
 }
 

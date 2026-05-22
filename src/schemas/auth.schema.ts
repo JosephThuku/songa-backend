@@ -38,6 +38,30 @@ export const VerifyOtpRequestSchema = registry.register(
         .string({ required_error: "code is required" })
         .regex(/^\d{4,6}$/, "code must be 4–6 digits")
         .openapi({ example: "123456" }),
+      // Signup fields — only honoured when the user is being created on this call.
+      // Ignored if the (phone, role) user already exists.
+      name: z
+        .string()
+        .trim()
+        .min(1, "name cannot be empty")
+        .max(80, "name is too long")
+        .optional()
+        .openapi({
+          example: "John Doe",
+          description:
+            "Optional. Applied only when this verify creates a new user. Ignored for returning users.",
+        }),
+      email: z
+        .string()
+        .trim()
+        .email("email is not valid")
+        .max(254)
+        .optional()
+        .openapi({
+          example: "john@example.com",
+          description:
+            "Optional. Applied only when this verify creates a new user. Ignored for returning users.",
+        }),
     })
     .strict(),
 );
@@ -67,6 +91,11 @@ export const VerifyOtpResponseSchema = registry.register(
       .string()
       .openapi({ example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...", description: "JWT, 30-day expiry, HS256." }),
     user: UserSchema,
+    isNewUser: z.boolean().openapi({
+      example: true,
+      description:
+        "`true` if this verify created the user (passwordless signup), `false` if it logged in an existing user. Mobile can use this to route to onboarding vs home.",
+    }),
   }),
 );
 

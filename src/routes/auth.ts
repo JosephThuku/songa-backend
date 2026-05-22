@@ -101,6 +101,8 @@ router.post(
       code: parsed.data.code,
       userAgent: ua,
       ip,
+      name: parsed.data.name,
+      email: parsed.data.email,
     });
 
     if (isWebClient(ua)) {
@@ -116,6 +118,7 @@ router.post(
     res.status(200).json({
       sessionToken: result.sessionToken,
       user: result.user,
+      isNewUser: result.isNewUser,
     });
   }),
 );

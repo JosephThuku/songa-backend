@@ -25,12 +25,21 @@ Goal: runnable server, DB connected, OTP auth end-to-end.
 
 ### Tests
 
-18/18 passing. See `tests/auth.test.ts`. Coverage matches STAGE_1_PLAN.md §8 one-for-one:
-phone/role validation, dev-code header behavior, rate limit (4th send → 429), invalid OTP, wrong code,
-happy paths for both roles, one-shot consume, same-phone-distinct-roles, /me without auth, /me with valid/expired/revoked, logout flow.
+22/22 passing. See `tests/auth.test.ts`. The original 18 match STAGE_1_PLAN.md §8 one-for-one
+(phone/role validation, dev-code header, rate limit 4th send → 429, invalid OTP, wrong code,
+happy paths for both roles, one-shot consume, same-phone-distinct-roles, /me without auth, /me with valid/expired/revoked, logout).
+Plus 4 signup tests (see "Stage 1 follow-up" below).
 
 Test command: `npm test` (loads `.env.test`, points Prisma at `songa_test` MySQL DB).
-Runtime: 3.8s end-to-end.
+Runtime: ~4s end-to-end.
+
+### Stage 1 follow-up — signup + SMS — 2026-05-23
+
+Added after the Stage 1 commit:
+
+- **Signup via `/otp/verify`** — accepts optional `name` and `email`. Applied only when the user is being created on this call; ignored for returning users. Response gains `isNewUser: boolean` so mobile can route signup → onboarding vs login → home. Matches the passwordless / Uber pattern (no separate `/signup` endpoint).
+- **SMS provider abstraction** at `src/lib/sms.ts`. Two impls: `ConsoleSmsProvider` (logs body to stdout — current dev behaviour) and `WasilianaProvider` (real HTTP). Env-selected: if `WASILIANA_API_KEY` is set, Wasiliana is used; otherwise console fallback. `sendOtp` service now dispatches the code — but failures don't fail the API call (the OTP is already stored, so a retry would still work).
+- **Wasiliana HTTP adapter** at `src/lib/sms.wasiliana.ts` — placeholder request body keyed on a guess of the docs at https://docs.wasiliana.com/. Three `TODO(wasiliana-docs)` markers to finalize once we have the docs in hand: endpoint path, auth-header name, and request body keys. The provider gracefully falls back to console on failure in the meantime.
 
 ### Mobile integration
 

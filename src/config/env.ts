@@ -20,6 +20,10 @@ const envSchema = z.object({
     .optional()
     .default("development"),
   CORS_ORIGINS: z.string().optional().default(""),
+  // SMS — leave WASILIANA_API_KEY unset to fall back to console logging (dev).
+  WASILIANA_API_KEY: z.string().optional(),
+  WASILIANA_SENDER_ID: z.string().optional(),
+  WASILIANA_BASE_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
