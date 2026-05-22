@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+.env.test
+.env.production
+*.log
+coverage/
+.vitest-cache/
+.DS_Store
+.idea/
+.vscode/
+
+# Prisma — commit migrations, but not the generated client
+prisma/migrations/dev.db
+node_modules/.prisma/
