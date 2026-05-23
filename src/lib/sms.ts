@@ -16,6 +16,8 @@ export interface SmsMessage {
   body: string;
   /** Optional alphanumeric sender ID. If omitted, the provider's default is used. */
   senderId?: string;
+  /** Wasiliana: set `is_otp` on the request body (https://docs.wasiliana.com/sender-id). */
+  isOtp?: boolean;
 }
 
 export interface SmsSendResult {
@@ -66,7 +68,12 @@ export class WasilianaProvider implements SmsProvider {
       return { ok: true, provider: "wasiliana", id: result.id, raw: result.raw };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      logger.error({ err, to: msg.to }, "Wasiliana SMS send failed");
+      logger.error({ err, to: msg.to, senderId: msg.senderId ?? this.config.senderId }, "Wasiliana SMS send failed");
+      if (error.includes("App does not match your api key")) {
+        logger.warn(
+          "Wasiliana rejected the API key for this sender ID — use the key from the same app in the Wasiliana dashboard that owns this sender.",
+        );
+      }
       return { ok: false, provider: "wasiliana", error };
     }
   }

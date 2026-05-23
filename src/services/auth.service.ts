@@ -1,8 +1,15 @@
-// NEW — auth service: sendOtp, verifyOtp, logout, getMe.
+// Auth: register → confirm OTP → login (phone/email + password).
 
 import cuid from "cuid";
-import { OnboardingStatus, UserRole } from "@prisma/client";
+import { OnboardingStatus, UserRole, type DriverProfile, type User } from "@prisma/client";
+import type { Role } from "../lib/auth-role.js";
 import { AppError } from "../lib/errors.js";
+import { isEmailIdentifier, normalizeEmail, normalizeLoginIdentifier } from "../lib/identifier.js";
+import { hashPassword, validatePasswordStrength, verifyPassword } from "../lib/password.js";
+import {
+  consumePendingRegistration,
+  storePendingRegistration,
+} from "../lib/pending-registration.js";
 import { hashToken, signSessionToken, SESSION_TTL_SECONDS } from "../lib/jwt.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -17,35 +24,46 @@ import { getRedis } from "../lib/redis.js";
 import { toUserDto, type UserDto } from "../lib/responses.js";
 import { getSmsProvider } from "../lib/sms.js";
 
-export type Role = "passenger" | "driver";
+export type { Role };
 
-export interface SendOtpInput {
+export interface RegisterInput {
   phone: string;
   role: Role;
+  password: string;
+  name?: string;
+  email?: string;
 }
 
-export interface SendOtpResult {
+export interface RegisterResult {
   ok: true;
   expiresInSeconds: number;
   devCode?: string;
   phone: string;
 }
 
-export interface VerifyOtpInput {
+export interface ConfirmRegistrationInput {
   phone: string;
   role: Role;
   code: string;
-  userAgent?: string | null;
   ip?: string | null;
-  // Optional signup fields — only used when this verify creates a new user.
-  name?: string;
-  email?: string;
 }
 
-export interface VerifyOtpResult {
+export interface ConfirmRegistrationResult {
+  ok: true;
+  user: UserDto;
+}
+
+export interface LoginInput {
+  identifier: string;
+  password: string;
+  role: Role;
+  userAgent?: string | null;
+  ip?: string | null;
+}
+
+export interface LoginResult {
   sessionToken: string;
   user: UserDto;
-  isNewUser: boolean;
 }
 
 export interface MeResult {
@@ -56,31 +74,13 @@ function toPrismaRole(role: Role): UserRole {
   return role === "passenger" ? UserRole.passenger : UserRole.driver;
 }
 
-/**
- * Send an OTP code to the supplied phone for the supplied role.
- * - Normalizes the phone to E.164.
- * - Generates a 6-digit code, stores its SHA-256(code + pepper) in Redis at otp:{role}:{phone}.
- * - Logs the code in non-production for dev visibility.
- */
-export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
-  const phone = normalizePhone(input.phone);
-  const role = input.role;
-  const code = generateOtpCode();
-  const redis = getRedis();
-  await storeOtp(redis, role, phone, code);
-
-  if (process.env.NODE_ENV !== "production") {
-    logger.info({ phone, role, code }, "Dev OTP issued");
-  }
-
-  // Dispatch via the configured SMS provider. We do NOT fail the API call if
-  // SMS delivery fails — log it and let the caller retry. The OTP is already
-  // stored, so a successful subsequent send wouldn't invalidate it.
+async function dispatchOtpSms(phone: string, code: string): Promise<void> {
   const sms = getSmsProvider();
   const result = await sms
     .send({
       to: phone,
       body: `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`,
+      isOtp: true,
     })
     .catch((err: unknown) => {
       logger.error({ err, phone }, "SMS send threw");
@@ -89,6 +89,91 @@ export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
   if (!result.ok) {
     logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
   }
+}
+
+async function issueOtp(role: Role, phone: string): Promise<{ code: string }> {
+  const code = generateOtpCode();
+  const redis = getRedis();
+  await storeOtp(redis, "register", role, phone, code);
+
+  if (process.env.NODE_ENV !== "production") {
+    logger.info({ phone, role, code }, "Dev OTP issued (register)");
+  }
+
+  await dispatchOtpSms(phone, code);
+  return { code };
+}
+
+async function createSession(
+  user: User & { driverProfile: DriverProfile | null },
+  role: Role,
+  userAgent?: string | null,
+  ip?: string | null,
+): Promise<string> {
+  const sessionId = `sess_${cuid()}`;
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
+  const token = signSessionToken({ userId: user.id, role, sessionId });
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      userId: user.id,
+      tokenHash: hashToken(token),
+      userAgent: userAgent ?? null,
+      ip: ip ?? null,
+      expiresAt,
+    },
+  });
+  return token;
+}
+
+async function ensureDriverProfile(userId: string): Promise<DriverProfile> {
+  const existing = await prisma.driverProfile.findUnique({ where: { userId } });
+  if (existing) return existing;
+  return prisma.driverProfile.create({
+    data: {
+      userId,
+      onboardingStatus: OnboardingStatus.approved,
+    },
+  });
+}
+
+/**
+ * Start registration: store pending credentials and send OTP to verify the phone.
+ */
+export async function register(input: RegisterInput): Promise<RegisterResult> {
+  const phone = normalizePhone(input.phone);
+  const role = input.role;
+  validatePasswordStrength(input.password);
+
+  const email = input.email ? normalizeEmail(input.email) : null;
+
+  const existing = await prisma.user.findUnique({
+    where: { phone_role: { phone, role: toPrismaRole(role) } },
+  });
+  if (existing?.phoneVerified && existing.passwordHash) {
+    throw new AppError("USER_EXISTS", 409, "An account with this phone already exists. Sign in instead.");
+  }
+
+  if (email) {
+    const emailTaken = await prisma.user.findFirst({
+      where: { email, role: toPrismaRole(role) },
+    });
+    if (emailTaken?.phoneVerified) {
+      throw new AppError("EMAIL_IN_USE", 409, "This email is already registered for this role.");
+    }
+  }
+
+  const passwordHash = await hashPassword(input.password);
+  const redis = getRedis();
+  await storePendingRegistration(redis, {
+    phone,
+    role,
+    passwordHash,
+    name: input.name?.trim() || null,
+    email,
+  });
+
+  const { code } = await issueOtp(role, phone);
 
   return {
     ok: true,
@@ -99,90 +184,124 @@ export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
 }
 
 /**
- * Verify an OTP for the phone+role, then issue a session JWT and Session row.
- * - One-shot: consumes the Redis OTP key on success.
- * - Logs OtpAttempt rows for both success and failure.
- * - Get-or-creates the User; if role is driver, also gets-or-creates a DriverProfile.
+ * Confirm registration OTP and create the user. Does not issue a session — user signs in next.
  */
-export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
+export async function confirmRegistration(
+  input: ConfirmRegistrationInput,
+): Promise<ConfirmRegistrationResult> {
   const phone = normalizePhone(input.phone);
   const role = input.role;
-  const code = input.code;
   const redis = getRedis();
 
-  const ok = await consumeOtp(redis, role, phone, code);
+  const ok = await consumeOtp(redis, "register", role, phone, input.code);
   if (!ok) {
     await prisma.otpAttempt
       .create({ data: { phone, ip: input.ip ?? null, success: false } })
-      .catch(() => {
-        /* swallow — analytics log */
-      });
+      .catch(() => {});
     throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
   }
 
-  // Get-or-create user by (phone, role). Apply optional signup fields ONLY on
-  // first create — never overwrite existing users from this endpoint.
-  const existing = await prisma.user.findUnique({
-    where: { phone_role: { phone, role: toPrismaRole(role) } },
-    include: { driverProfile: true },
-  });
-  const isNewUser = !existing;
-  const user = existing
-    ? existing
-    : await prisma.user.create({
-        data: {
-          id: `usr_${cuid()}`,
-          phone,
-          role: toPrismaRole(role),
-          name: input.name ?? null,
-          email: input.email ?? null,
-        },
-        include: { driverProfile: true },
-      });
-
-  // Ensure driver profile exists for driver role (Stage 1 short-circuit: approved)
-  let driverProfile = user.driverProfile ?? null;
-  if (role === "driver" && !driverProfile) {
-    driverProfile = await prisma.driverProfile.create({
-      data: {
-        userId: user.id,
-        onboardingStatus: OnboardingStatus.approved,
-      },
-    });
+  const pending = await consumePendingRegistration(redis, role, phone);
+  if (!pending) {
+    throw new AppError(
+      "REGISTRATION_EXPIRED",
+      400,
+      "Registration expired. Please sign up again.",
+    );
   }
 
-  // Create session row + JWT
-  const sessionId = `sess_${cuid()}`;
-  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
-  const token = signSessionToken({ userId: user.id, role, sessionId });
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      userId: user.id,
-      tokenHash: hashToken(token),
-      userAgent: input.userAgent ?? null,
-      ip: input.ip ?? null,
-      expiresAt,
-    },
+  let driverProfile: DriverProfile | null = null;
+  const user = await prisma.$transaction(async (tx) => {
+    const prior = await tx.user.findUnique({
+      where: { phone_role: { phone, role: toPrismaRole(role) } },
+    });
+    if (prior?.phoneVerified && prior.passwordHash) {
+      throw new AppError("USER_EXISTS", 409, "An account with this phone already exists.");
+    }
+
+    const created = prior
+      ? await tx.user.update({
+          where: { id: prior.id },
+          data: {
+            passwordHash: pending.passwordHash,
+            phoneVerified: true,
+            name: pending.name ?? prior.name,
+            email: pending.email ?? prior.email,
+          },
+        })
+      : await tx.user.create({
+          data: {
+            id: `usr_${cuid()}`,
+            phone,
+            role: toPrismaRole(role),
+            passwordHash: pending.passwordHash,
+            phoneVerified: true,
+            name: pending.name,
+            email: pending.email,
+          },
+        });
+
+    if (role === "driver") {
+      const profile = await tx.driverProfile.findUnique({ where: { userId: created.id } });
+      driverProfile =
+        profile ??
+        (await tx.driverProfile.create({
+          data: {
+            userId: created.id,
+            onboardingStatus: OnboardingStatus.approved,
+          },
+        }));
+    }
+
+    return created;
   });
 
-  // Audit success
   await prisma.otpAttempt
     .create({ data: { phone, ip: input.ip ?? null, success: true } })
-    .catch(() => {
-      /* swallow — analytics log */
-    });
+    .catch(() => {});
 
-  return {
-    sessionToken: token,
-    user: toUserDto(user, driverProfile),
-    isNewUser,
-  };
+  return { ok: true, user: toUserDto(user, driverProfile) };
 }
 
 /**
- * Mark the current session as revoked.
+ * Sign in with phone or email plus password.
  */
+export async function login(input: LoginInput): Promise<LoginResult> {
+  const identifier = normalizeLoginIdentifier(input.identifier);
+  const role = input.role;
+
+  const user = isEmailIdentifier(identifier)
+    ? await prisma.user.findFirst({
+        where: { email: identifier, role: toPrismaRole(role) },
+        include: { driverProfile: true },
+      })
+    : await prisma.user.findUnique({
+        where: { phone_role: { phone: identifier, role: toPrismaRole(role) } },
+        include: { driverProfile: true },
+      });
+
+  if (!user?.phoneVerified || !user.passwordHash) {
+    throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
+  }
+
+  const valid = await verifyPassword(input.password, user.passwordHash);
+  if (!valid) {
+    throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
+  }
+
+  let driverProfile = user.driverProfile;
+  if (role === "driver" && !driverProfile) {
+    driverProfile = await ensureDriverProfile(user.id);
+  }
+
+  const sessionToken = await createSession(user, role, input.userAgent, input.ip);
+
+  return {
+    sessionToken,
+    user: toUserDto(user, driverProfile),
+  };
+}
+
 export async function logout(sessionId: string): Promise<void> {
   await prisma.session.update({
     where: { id: sessionId },
@@ -190,9 +309,6 @@ export async function logout(sessionId: string): Promise<void> {
   });
 }
 
-/**
- * Fetch the §2.4 view of the authenticated user.
- */
 export async function getMe(userId: string): Promise<MeResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },

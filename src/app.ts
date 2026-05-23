@@ -5,7 +5,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
-import { corsOrigins, type Env } from "./config/env.js";
+import { corsOriginSetting, type Env } from "./config/env.js";
 import { errorMiddleware, notFoundMiddleware } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import apiRouter from "./routes/index.js";
@@ -20,12 +20,17 @@ export function buildApp({ env }: BuildAppOptions): Express {
   app.disable("x-powered-by");
   app.set("trust proxy", true);
 
-  app.use(helmet());
-  const origins = corsOrigins(env);
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    }),
+  );
   app.use(
     cors({
-      origin: origins.length > 0 ? origins : true,
+      origin: corsOriginSetting(env),
       credentials: true,
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "x-dev-show-otp"],
     }),
   );
   app.use(express.json({ limit: "100kb" }));

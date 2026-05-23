@@ -1,15 +1,15 @@
-// Wasiliana HTTP adapter. The exact request shape (URL path, header name,
-// JSON body keys) needs to be confirmed against the official docs at
-// https://docs.wasiliana.com/. The values below are a best guess that matches
-// common Kenyan SMS-provider patterns (apiKey header, JSON body with phone
-// list + sender + message). To finalize, drop the relevant docs section into
-// the codebase and adjust the three TODO markers below.
+// Wasiliana SMS adapter — https://docs.wasiliana.com/sender-id
+//
+// POST https://api.wasiliana.com/api/v1/send/sms
+// Headers: Content-Type: application/json, apiKey: <key>
+// Body: { recipients: ["2547..."], from: "<sender>", message: "...", is_otp?: true }
 
 import type { SmsMessage } from "./sms.js";
 
 export interface WasilianaConfig {
   apiKey: string;
   senderId: string;
+  /** Host only, e.g. https://api.wasiliana.com */
   baseUrl: string;
 }
 
@@ -18,46 +18,31 @@ export interface WasilianaSendResult {
   raw: unknown;
 }
 
-/**
- * Send a single SMS via Wasiliana.
- *
- * NOTE: filled in to the *likely* shape — confirm against the actual API docs
- * before production. The three points most likely to need tweaking are flagged
- * with `// TODO(wasiliana-docs)` comments.
- */
+/** Wasiliana expects national format without '+', e.g. 254712345678. */
+export function toWasilianaRecipient(e164: string): string {
+  return e164.replace(/^\+/, "").trim();
+}
+
 export async function sendViaWasiliana(
   config: WasilianaConfig,
   msg: SmsMessage,
 ): Promise<WasilianaSendResult> {
-  // TODO(wasiliana-docs): confirm the exact endpoint path. Common candidates:
-  //   POST /api/v1/sms/send-bulk
-  //   POST /api/v1/sms/send
-  //   POST /v1/messaging/send
-  const url = `${config.baseUrl.replace(/\/$/, "")}/api/v1/sms/send-bulk`;
+  const url = `${config.baseUrl.replace(/\/$/, "")}/api/v1/send/sms`;
 
-  // TODO(wasiliana-docs): confirm the auth header name and value format.
-  // Many Kenyan providers use one of:
-  //   "apiKey: <key>"          (Africa's Talking-style)
-  //   "Authorization: Bearer <key>"
-  //   "X-API-KEY: <key>"
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
     apiKey: config.apiKey,
   };
 
-  // TODO(wasiliana-docs): confirm the request body keys. Typical patterns:
-  //   { "from": "SONGA", "to": ["+2547..."], "message": "..." }
-  //   { "senderID": "SONGA", "recipients": [{ "phone": "..." }], "message": "..." }
-  //   { "sender_id": "SONGA", "phones": "...", "message": "..." }
-  //
-  // The body below uses the "from / to-array / message" pattern. Adjust once
-  // docs are confirmed.
-  const body = {
+  const body: Record<string, unknown> = {
+    recipients: [toWasilianaRecipient(msg.to)],
     from: msg.senderId ?? config.senderId,
-    to: [msg.to],
     message: msg.body,
   };
+  if (msg.isOtp) {
+    body.is_otp = true;
+  }
 
   const response = await fetch(url, {
     method: "POST",
@@ -70,20 +55,30 @@ export async function sendViaWasiliana(
   try {
     parsed = JSON.parse(text);
   } catch {
-    // non-JSON response — keep the raw text in `raw`.
+    /* keep raw text */
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Wasiliana returned ${response.status} ${response.statusText}: ${text.slice(0, 200)}`,
-    );
+    let detail = text.slice(0, 300);
+    if (parsed && typeof parsed === "object" && "message" in parsed) {
+      const msg = (parsed as { message?: string; code?: number }).message;
+      const code = (parsed as { code?: number }).code;
+      detail = [msg, code !== undefined ? `code ${code}` : null].filter(Boolean).join(" — ");
+    }
+    throw new Error(`Wasiliana returned ${response.status}: ${detail}`);
   }
 
-  // TODO(wasiliana-docs): extract the real message id field name.
+  if (parsed && typeof parsed === "object" && "status" in parsed) {
+    const envelope = parsed as { status?: string; data?: string; message?: string };
+    if (envelope.status === "failed") {
+      const detail = envelope.data ?? envelope.message ?? text;
+      throw new Error(`Wasiliana dispatch failed: ${detail}`);
+    }
+  }
+
   const messageId =
-    (parsed as { id?: string; messageId?: string; message_id?: string } | null)?.id ??
-    (parsed as { messageId?: string } | null)?.messageId ??
-    (parsed as { message_id?: string } | null)?.message_id ??
+    (parsed as { id?: string; messageId?: string; message_uid?: string } | null)?.message_uid ??
+    (parsed as { id?: string } | null)?.id ??
     `wasiliana_${Date.now()}`;
 
   return { id: messageId, raw: parsed };

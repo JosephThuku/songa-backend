@@ -2,7 +2,12 @@
 
 import { Router } from "express";
 import authRouter from "./auth.js";
+import bookingsRouter from "./bookings.js";
+import devicesRouter from "./devices.js";
+import driversRouter from "./drivers.js";
 import docsRouter from "./docs.js";
+import notificationsRouter from "./notifications.js";
+import ridesRouter from "./rides.js";
 
 const router: Router = Router();
 
@@ -11,6 +16,11 @@ router.get("/health", (_req, res) => {
 });
 
 router.use("/auth", authRouter);
+router.use("/bookings", bookingsRouter);
+router.use("/rides", ridesRouter);
+router.use("/drivers", driversRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/devices", devicesRouter);
 
 // Docs surface — Swagger UI at /api/docs, raw spec at /api/openapi.json.
 router.use("/", docsRouter);

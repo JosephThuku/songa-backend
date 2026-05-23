@@ -19,6 +19,8 @@ const envSchema = z.object({
     .enum(["development", "test", "production"])
     .optional()
     .default("development"),
+  /** Explicit allow-all toggle. Unset = open in dev, allowlist in production when CORS_ORIGINS is set. */
+  CORS_ALLOW_ALL: z.enum(["true", "false", "1", "0"]).optional(),
   CORS_ORIGINS: z.string().optional().default(""),
   // SMS — leave WASILIANA_API_KEY unset to fall back to console logging (dev).
   WASILIANA_API_KEY: z.string().optional(),
@@ -44,9 +46,28 @@ export function loadEnv(): Env {
 }
 
 export function corsOrigins(env: Env): string[] {
-  return env.CORS_ORIGINS.split(",")
+  const raw = env.CORS_ORIGINS.trim();
+  if (raw === "*" || raw === "all") return [];
+  return raw
+    .split(",")
     .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+    .filter((s) => s.length > 0 && s !== "*");
+}
+
+/** True → cors package reflects any Origin (works with credentials). */
+export function shouldAllowAllCorsOrigins(env: Env): boolean {
+  const flag = env.CORS_ALLOW_ALL;
+  if (flag === "true" || flag === "1") return true;
+  if (flag === "false" || flag === "0") return false;
+  // Unset: any origin in dev/test; production uses allowlist when CORS_ORIGINS is set.
+  if (env.NODE_ENV !== "production") return true;
+  return corsOrigins(env).length === 0;
+}
+
+export function corsOriginSetting(env: Env): boolean | string[] {
+  if (shouldAllowAllCorsOrigins(env)) return true;
+  const origins = corsOrigins(env);
+  return origins.length > 0 ? origins : true;
 }
 
 // For tests — reset cached env so a fresh process.env can be reloaded.

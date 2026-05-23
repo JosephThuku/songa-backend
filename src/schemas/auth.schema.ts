@@ -12,6 +12,82 @@ export const roleSchema = z
   .enum(["passenger", "driver"], { errorMap: () => ({ message: "role must be 'passenger' or 'driver'" }) })
   .openapi({ example: "passenger" });
 
+const passwordSchema = z
+  .string({ required_error: "password is required" })
+  .min(8, "password must be at least 8 characters");
+
+export const RegisterRequestSchema = registry.register(
+  "RegisterRequest",
+  z
+    .object({
+      phone: z
+        .string({ required_error: "phone is required" })
+        .min(1, "phone is required")
+        .openapi({ example: "+254712000001" }),
+      role: roleSchema,
+      password: passwordSchema.openapi({ example: "MySecurePass1" }),
+      name: z.string().trim().min(1).max(80).optional().openapi({ example: "John Doe" }),
+      email: z.string().trim().email().max(254).optional().openapi({ example: "john@example.com" }),
+    })
+    .strict(),
+);
+
+export const ConfirmRegistrationRequestSchema = registry.register(
+  "ConfirmRegistrationRequest",
+  z
+    .object({
+      phone: z.string().min(1).openapi({ example: "+254712000001" }),
+      role: roleSchema,
+      code: z
+        .string({ required_error: "code is required" })
+        .regex(/^\d{4,6}$/, "code must be 4–6 digits")
+        .openapi({ example: "123456" }),
+    })
+    .strict(),
+);
+
+export const LoginRequestSchema = registry.register(
+  "LoginRequest",
+  z
+    .object({
+      identifier: z
+        .string({ required_error: "identifier is required" })
+        .min(1, "identifier is required")
+        .openapi({
+          example: "+254712000001",
+          description: "E.164 phone or email address.",
+        }),
+      password: z.string({ required_error: "password is required" }).min(1),
+      role: roleSchema,
+    })
+    .strict(),
+);
+
+export const RegisterResponseSchema = registry.register(
+  "RegisterResponse",
+  z.object({
+    ok: z.literal(true),
+    expiresInSeconds: z.number().int(),
+    devCode: z.string().optional(),
+  }),
+);
+
+export const ConfirmRegistrationResponseSchema = registry.register(
+  "ConfirmRegistrationResponse",
+  z.object({
+    ok: z.literal(true),
+    user: UserSchema,
+  }),
+);
+
+export const LoginResponseSchema = registry.register(
+  "LoginResponse",
+  z.object({
+    sessionToken: z.string(),
+    user: UserSchema,
+  }),
+);
+
 export const SendOtpRequestSchema = registry.register(
   "SendOtpRequest",
   z
@@ -104,6 +180,54 @@ export const MeResponseSchema = registry.register("MeResponse", z.object({ user:
 export const LogoutResponseSchema = registry.register("LogoutResponse", z.object({ ok: z.literal(true) }));
 
 // ---------------- Path registrations ----------------
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/register",
+  tags: ["Auth"],
+  summary: "Start sign-up (sends OTP to phone)",
+  request: {
+    body: { required: true, content: { "application/json": { schema: RegisterRequestSchema } } },
+  },
+  responses: {
+    200: { description: "OTP sent.", content: { "application/json": { schema: RegisterResponseSchema } } },
+    409: { description: "User already exists.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/register/confirm",
+  tags: ["Auth"],
+  summary: "Confirm sign-up OTP and create account",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: ConfirmRegistrationRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Account created (no session — sign in next).",
+      content: { "application/json": { schema: ConfirmRegistrationResponseSchema } },
+    },
+    401: { description: "Invalid OTP.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/login",
+  tags: ["Auth"],
+  summary: "Sign in with phone or email and password",
+  request: {
+    body: { required: true, content: { "application/json": { schema: LoginRequestSchema } } },
+  },
+  responses: {
+    200: { description: "Session created.", content: { "application/json": { schema: LoginResponseSchema } } },
+    401: { description: "Invalid credentials.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
 
 registry.registerPath({
   method: "post",

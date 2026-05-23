@@ -55,7 +55,7 @@ export const UserSchema = registry.register(
     })
     .openapi({
       description:
-        "User DTO returned by `/otp/verify`, `/me`, and embedded in ride payloads. Matches backend-requirements.md §2.3 / §2.4.",
+        "User DTO returned by `/login`, `/me`, and embedded in ride payloads. Matches backend-requirements.md §2.3 / §2.4.",
     }),
 );
 

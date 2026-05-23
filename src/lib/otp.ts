@@ -23,26 +23,30 @@ export function hashOtp(code: string): string {
   return createHash("sha256").update(code + pepper()).digest("hex");
 }
 
-export function otpKey(role: string, phone: string): string {
-  return `otp:${role}:${phone}`;
+export type OtpPurpose = "register" | "legacy";
+
+export function otpKey(purpose: OtpPurpose, role: string, phone: string): string {
+  return `otp:${purpose}:${role}:${phone}`;
 }
 
 export async function storeOtp(
   redis: RedisLike,
+  purpose: OtpPurpose,
   role: string,
   phone: string,
   code: string,
 ): Promise<void> {
-  await redis.set(otpKey(role, phone), hashOtp(code), { pxMs: OTP_TTL_SECONDS * 1000 });
+  await redis.set(otpKey(purpose, role, phone), hashOtp(code), { pxMs: OTP_TTL_SECONDS * 1000 });
 }
 
 export async function consumeOtp(
   redis: RedisLike,
+  purpose: OtpPurpose,
   role: string,
   phone: string,
   code: string,
 ): Promise<boolean> {
-  const key = otpKey(role, phone);
+  const key = otpKey(purpose, role, phone);
   const stored = await redis.get(key);
   if (!stored) return false;
   const candidate = hashOtp(code);

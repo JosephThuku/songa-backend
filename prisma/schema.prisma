@@ -20,19 +20,63 @@ enum OnboardingStatus {
   rejected
 }
 
-model User {
-  id        String   @id @default(cuid())
-  phone     String
-  role      UserRole
-  name      String?
-  email     String?
-  avatarUrl String?
-  rating    Float    @default(5.0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum RidePhase {
+  finding_driver
+  driver_accepted
+  driver_en_route
+  driver_arriving
+  driver_arrived
+  trip_in_progress
+  trip_ended
+  cancelled
+}
 
-  driverProfile DriverProfile?
-  sessions      Session[]
+enum BookingMode {
+  seat_selection
+  pay_on_arrival
+}
+
+enum RideEventActor {
+  passenger
+  driver
+  system
+}
+
+enum BookingStatus {
+  pending_payment
+  paid
+  failed
+  cancelled
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+}
+
+model User {
+  id            String    @id @default(cuid())
+  phone         String
+  role          UserRole
+  name          String?
+  email         String?
+  passwordHash  String?
+  phoneVerified Boolean   @default(false)
+  avatarUrl     String?
+  rating        Float     @default(5.0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  driverProfile      DriverProfile?
+  sessions           Session[]
+  passengerRides     Ride[]              @relation("PassengerRides")
+  driverRides        Ride[]              @relation("DriverRides")
+  rideEvents         RideEvent[]
+  bookings           Booking[]
+  walletTransactions WalletTransaction[]
+  notifications      Notification[]
+  devices            Device[]
 
   @@unique([phone, role]) // one human can be both passenger AND driver on same #
   @@unique([email, role]) // null emails allowed; uniqueness only enforced when set
@@ -40,16 +84,161 @@ model User {
 }
 
 model DriverProfile {
-  id               String           @id @default(cuid())
-  userId           String           @unique
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isOnline         Boolean          @default(false)
-  acceptanceRate   Int              @default(100)
-  onboardingStatus OnboardingStatus @default(approved)
-  vehicleId        String?
-  onlineSince      DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isOnline          Boolean          @default(false)
+  acceptanceRate    Int              @default(100)
+  onboardingStatus  OnboardingStatus @default(approved)
+  vehicleId         String?
+  vehicle           Vehicle?         @relation(fields: [vehicleId], references: [id])
+  location          Json?
+  locationUpdatedAt DateTime?
+  onlineSince       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model Vehicle {
+  id             String          @id @default(cuid())
+  type           String
+  make           String
+  model          String
+  registration   String          @unique
+  color          String
+  year           String?
+  seats          Int             @default(4)
+  status         String          @default("Activated")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  driverProfiles DriverProfile[]
+}
+
+model Ride {
+  id               String          @id
+  tripId           String?
+  passengerId      String
+  passenger        User            @relation("PassengerRides", fields: [passengerId], references: [id])
+  driverId         String?
+  driver           User?           @relation("DriverRides", fields: [driverId], references: [id])
+  phase            RidePhase       @default(finding_driver)
+  bookingMode      BookingMode
+  prepaid          Boolean         @default(false)
+  bookingId        String?
+  paymentMethod    String?
+  price            Int
+  currency         String          @default("KES")
+  etaMinutes       Int?
+  distanceKm       Float?
+  driverProgress   Float           @default(0)
+  passengerBoarded Boolean         @default(false)
+  seats            String?
+  pickup           Json
+  dropoff          Json
+  driverLocation   Json?
+  cancelReason     Json?
+  cancelledByRole  RideEventActor?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  events           RideEvent[]
+  declinedBy       String          @default("[]") @db.VarChar(4096)
+
+  @@index([passengerId, phase])
+  @@index([driverId, phase])
+  @@index([phase, createdAt])
+}
+
+model RideEvent {
+  id       String         @id @default(cuid())
+  rideId   String
+  ride     Ride           @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  actor    RideEventActor
+  actorId  String?
+  user     User?          @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action   String
+  phase    RidePhase
+  metadata Json?
+  at       DateTime       @default(now())
+
+  @@index([rideId, at])
+}
+
+model Booking {
+  id          String        @id
+  passengerId String
+  passenger   User          @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+  tripId      String?
+  status      BookingStatus @default(pending_payment)
+  seats       String?
+  subtotal    Int
+  platformFee Int           @default(50)
+  total       Int
+  currency    String        @default("KES")
+  pickup      Json
+  dropoff     Json
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  payments    Payment[]
+
+  @@index([passengerId, status])
+}
+
+model Payment {
+  id          String        @id
+  bookingId   String
+  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  provider    String
+  status      PaymentStatus @default(pending)
+  checkoutUrl String?
+  reference   String        @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([bookingId, createdAt])
+}
+
+model WalletTransaction {
+  id        String   @id
+  driverId  String
+  driver    User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  rideId    String?
+  type      String
+  label     String
+  amount    Int
+  currency  String   @default("KES")
+  status    String   @default("posted")
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([driverId, createdAt])
+  @@index([rideId])
+}
+
+model Notification {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String
+  deepLink  String?
+  read      Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Device {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushToken String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model OtpAttempt {

@@ -16,13 +16,13 @@ export const bearerAuth = registry.registerComponent("securitySchemes", "bearerA
   type: "http",
   scheme: "bearer",
   bearerFormat: "JWT",
-  description: "JWT issued by `POST /api/auth/otp/verify`. Mobile clients send `Authorization: Bearer <token>`.",
+  description: "JWT issued by `POST /api/auth/login`. Mobile clients send `Authorization: Bearer <token>`.",
 });
 
-// HttpOnly cookie session for web clients (set automatically on `/otp/verify` when UA is a browser).
+// HttpOnly cookie session for web clients (set automatically on `/login` when UA is a browser).
 export const cookieAuth = registry.registerComponent("securitySchemes", "cookieAuth", {
   type: "apiKey",
   in: "cookie",
   name: "songa_session",
-  description: "Set automatically by `POST /api/auth/otp/verify` when the User-Agent is a browser. HttpOnly + SameSite=Lax.",
+  description: "Set automatically by `POST /api/auth/login` when the User-Agent is a browser. HttpOnly + SameSite=Lax.",
 });
