@@ -10,7 +10,10 @@ import { assertPrismaClientCurrent } from "./lib/ensure-prisma-client.js";
 import { startDispatchWorker } from "./lib/dispatch-queue.js";
 import { startRideEventBridge } from "./lib/ride-event-bridge.js";
 import { shouldUseDummyPlaces } from "./lib/dummy-places.js";
-import { getGooglePlacesApiKey, googlePlacesKeyEnvHint } from "./lib/google-places-key.js";
+import {
+  getGooglePlacesApiKey,
+  googlePlacesKeyEnvHint,
+} from "./lib/google-places-key.js";
 import { attachSocketIo } from "./lib/socket.js";
 
 async function main(): Promise<void> {
@@ -18,7 +21,9 @@ async function main(): Promise<void> {
   const env = loadEnv();
 
   if (shouldUseDummyPlaces()) {
-    logger.info("Places autocomplete: using data/dummy-places.json (set USE_GOOGLE_PLACES=true + GOOGLE_PLACES_API_KEY for Google)");
+    logger.info(
+      "Places autocomplete: using data/dummy-places.json (set GOOGLE_PLACES_API_KEY for Google or USE_DUMMY_PLACES=true for dummy data)",
+    );
   } else if (!getGooglePlacesApiKey()) {
     logger.warn(googlePlacesKeyEnvHint());
   } else {
@@ -27,11 +32,16 @@ async function main(): Promise<void> {
   const app = buildApp({ env });
   const httpServer = createServer(app);
   const stopRideBridge = startRideEventBridge();
-  const stopDispatchWorker = process.env.REDIS_URL ? startDispatchWorker() : () => undefined;
+  const stopDispatchWorker = process.env.REDIS_URL
+    ? startDispatchWorker()
+    : () => undefined;
   const io = attachSocketIo({ server: httpServer, env });
 
   httpServer.listen(env.PORT, () => {
-    logger.info({ port: env.PORT, env: env.NODE_ENV }, "songa-backend listening");
+    logger.info(
+      { port: env.PORT, env: env.NODE_ENV },
+      "songa-backend listening",
+    );
   });
 
   const shutdown = (signal: string) => {

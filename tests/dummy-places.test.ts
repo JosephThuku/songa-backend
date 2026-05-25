@@ -5,6 +5,7 @@ import {
   inferCatalogCityFromCoords,
   placeFromGpsId,
   searchDummyPlaces,
+  shouldUseDummyPlaces,
 } from "../src/lib/dummy-places.js";
 
 describe("dummy places", () => {
@@ -14,7 +15,9 @@ describe("dummy places", () => {
       origin: { latitude: -1.29, longitude: 36.82 },
     });
     expect(results.length).toBeGreaterThan(0);
-    expect(results.every((p) => p.placeId.startsWith("dummy_nairobi"))).toBe(true);
+    expect(results.every((p) => p.placeId.startsWith("dummy_nairobi"))).toBe(
+      true,
+    );
   });
 
   it("allows Mombasa when query mentions coast", () => {
@@ -35,7 +38,9 @@ describe("dummy places", () => {
     expect(jkia[0]?.placeId).toBe("dummy_nairobi_jkia_t1a");
 
     const westlands = searchDummyPlaces({ query: "westlands" });
-    expect(westlands.some((p) => p.placeId === "dummy_nairobi_westlands")).toBe(true);
+    expect(westlands.some((p) => p.placeId === "dummy_nairobi_westlands")).toBe(
+      true,
+    );
   });
 
   it("finds Mombasa coast locations", () => {
@@ -61,5 +66,32 @@ describe("dummy places", () => {
     expect(place.latitude).toBeCloseTo(-1.3192, 3);
     expect(place.longitude).toBeCloseTo(36.9278, 3);
     expect(place.name).toContain("JKIA");
+  });
+
+  it("uses Google Places by default when a key is configured", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+    const previousUseDummy = process.env.USE_DUMMY_PLACES;
+    const previousUseGoogle = process.env.USE_GOOGLE_PLACES;
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.GOOGLE_PLACES_API_KEY = "test-key";
+      delete process.env.USE_DUMMY_PLACES;
+      delete process.env.USE_GOOGLE_PLACES;
+
+      expect(shouldUseDummyPlaces()).toBe(false);
+
+      process.env.USE_DUMMY_PLACES = "true";
+      expect(shouldUseDummyPlaces()).toBe(true);
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+      if (previousGoogleKey === undefined)
+        delete process.env.GOOGLE_PLACES_API_KEY;
+      else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+      if (previousUseDummy === undefined) delete process.env.USE_DUMMY_PLACES;
+      else process.env.USE_DUMMY_PLACES = previousUseDummy;
+      if (previousUseGoogle === undefined) delete process.env.USE_GOOGLE_PLACES;
+      else process.env.USE_GOOGLE_PLACES = previousUseGoogle;
+    }
   });
 });

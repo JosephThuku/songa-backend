@@ -10,7 +10,7 @@ import {
 import {
   autocompletePlaces,
   getPlaceDetails,
-  reversePlaceFromCatalog,
+  reversePlace,
 } from "../services/places.service.js";
 
 const router: Router = Router();
@@ -28,7 +28,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const query = PlacesReverseQuerySchema.parse(req.query);
     res.status(200).json({
-      place: reversePlaceFromCatalog(query.lat, query.lng),
+      place: await reversePlace(query.lat, query.lng),
     });
   }),
 );

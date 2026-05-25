@@ -23,7 +23,10 @@ let cachedPlaces: DummyPlaceRecord[] | null = null;
 const byId = new Map<string, DummyPlaceRecord>();
 
 function dataPath(): string {
-  const fromModule = join(dirname(fileURLToPath(import.meta.url)), "../../data/dummy-places.json");
+  const fromModule = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../data/dummy-places.json",
+  );
   if (existsSync(fromModule)) return fromModule;
   const fromCwd = join(process.cwd(), "data/dummy-places.json");
   if (existsSync(fromCwd)) return fromCwd;
@@ -42,13 +45,12 @@ export function loadDummyPlaces(): DummyPlaceRecord[] {
   return cachedPlaces;
 }
 
-/** Dev autocomplete without Google. Default dummy in development unless USE_GOOGLE_PLACES=true. */
+/** Dev autocomplete without Google. Only use dummy data when explicitly enabled or no key exists. */
 export function shouldUseDummyPlaces(): boolean {
   if (process.env.USE_DUMMY_PLACES === "true") return true;
   if (process.env.USE_DUMMY_PLACES === "false") return false;
-  if (process.env.USE_GOOGLE_PLACES === "true" && getGooglePlacesApiKey()) return false;
-  if (process.env.NODE_ENV === "production") return !getGooglePlacesApiKey();
-  return true;
+  if (process.env.USE_GOOGLE_PLACES === "false") return true;
+  return !getGooglePlacesApiKey();
 }
 
 /** Only use a catalog name for GPS/reverse when the user is this close (km). */
@@ -61,11 +63,16 @@ const REGION_ANCHORS = {
 
 const REGION_RADIUS_KM = 250;
 
-const MOMBASA_QUERY = /\b(mombasa|moi|nyali|diani|bamburi|likoni|makadara|miritini)\b/i;
-const NAIROBI_QUERY = /\b(nairobi|jkia|westlands|karen|sgr|wilson|umoja|gigiri|garden|cbd|kenyatta)\b/i;
+const MOMBASA_QUERY =
+  /\b(mombasa|moi|nyali|diani|bamburi|likoni|makadara|miritini)\b/i;
+const NAIROBI_QUERY =
+  /\b(nairobi|jkia|westlands|karen|sgr|wilson|umoja|gigiri|garden|cbd|kenyatta)\b/i;
 
 /** Prefer Nairobi vs Mombasa catalog entries based on user position or explicit query. */
-export function inferCatalogCityFromCoords(lat: number, lng: number): "nairobi" | "mombasa" | null {
+export function inferCatalogCityFromCoords(
+  lat: number,
+  lng: number,
+): "nairobi" | "mombasa" | null {
   const toNairobi = haversineDistanceKm({ lat, lng }, REGION_ANCHORS.nairobi);
   const toMombasa = haversineDistanceKm({ lat, lng }, REGION_ANCHORS.mombasa);
   if (toNairobi <= REGION_RADIUS_KM && toNairobi <= toMombasa) return "nairobi";
@@ -73,10 +80,14 @@ export function inferCatalogCityFromCoords(lat: number, lng: number): "nairobi" 
   return null;
 }
 
-function catalogCityForSearch(query: string, origin?: { latitude: number; longitude: number } | null): string | null {
+function catalogCityForSearch(
+  query: string,
+  origin?: { latitude: number; longitude: number } | null,
+): string | null {
   if (MOMBASA_QUERY.test(query)) return "mombasa";
   if (NAIROBI_QUERY.test(query)) return "nairobi";
-  if (origin) return inferCatalogCityFromCoords(origin.latitude, origin.longitude);
+  if (origin)
+    return inferCatalogCityFromCoords(origin.latitude, origin.longitude);
   return "nairobi";
 }
 
@@ -196,9 +207,15 @@ export function findNearestDummyPlaceWithDistance(
   const places = loadDummyPlaces();
   if (places.length === 0) return null;
   let best = places[0]!;
-  let bestKm = haversineDistanceKm({ lat, lng }, { lat: best.latitude, lng: best.longitude });
+  let bestKm = haversineDistanceKm(
+    { lat, lng },
+    { lat: best.latitude, lng: best.longitude },
+  );
   for (const place of places.slice(1)) {
-    const km = haversineDistanceKm({ lat, lng }, { lat: place.latitude, lng: place.longitude });
+    const km = haversineDistanceKm(
+      { lat, lng },
+      { lat: place.latitude, lng: place.longitude },
+    );
     if (km < bestKm) {
       best = place;
       bestKm = km;
@@ -208,7 +225,10 @@ export function findNearestDummyPlaceWithDistance(
 }
 
 /** Nearest catalog place (for labels / suggestions near the user). */
-export function findNearestDummyPlace(lat: number, lng: number): DummyPlaceRecord | null {
+export function findNearestDummyPlace(
+  lat: number,
+  lng: number,
+): DummyPlaceRecord | null {
   return findNearestDummyPlaceWithDistance(lat, lng)?.place ?? null;
 }
 
@@ -222,7 +242,11 @@ export function getDummyPlaceById(placeId: string): {
   loadDummyPlaces();
   const place = byId.get(placeId);
   if (!place) {
-    throw new AppError("PLACE_NOT_FOUND", 404, `Unknown dummy place: ${placeId}`);
+    throw new AppError(
+      "PLACE_NOT_FOUND",
+      404,
+      `Unknown dummy place: ${placeId}`,
+    );
   }
   return {
     latitude: place.latitude,
