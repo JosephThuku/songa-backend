@@ -469,6 +469,70 @@ export async function startRide(rideId: string, driverId: string, viewer: Expres
   });
 }
 
+export async function rateDriverForRide(
+  rideId: string,
+  passengerId: string,
+  stars: number,
+  viewer: Express.UserContext,
+): Promise<RideDto> {
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    throw new AppError("INVALID_INPUT", 400, "Rating must be between 1 and 5 stars.");
+  }
+
+  const ride = await requireRideForPassenger(rideId, passengerId);
+  if (ride.phase !== RidePhase.trip_ended) {
+    throw new AppError("INVALID_PHASE", 409, "You can only rate after the trip ends.", {
+      phase: ride.phase,
+    });
+  }
+  if (!ride.driverId) {
+    throw new AppError("INVALID_INPUT", 400, "No driver assigned to this ride.");
+  }
+  if (ride.passengerDriverRating != null) {
+    throw new AppError("ALREADY_RATED", 409, "You already rated this trip.");
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const write = await tx.ride.updateMany({
+      where: {
+        id: rideId,
+        passengerId,
+        phase: RidePhase.trip_ended,
+        passengerDriverRating: null,
+      },
+      data: { passengerDriverRating: stars },
+    });
+    if (write.count !== 1) {
+      throw new AppError("ALREADY_RATED", 409, "You already rated this trip.");
+    }
+
+    await tx.rideEvent.create({
+      data: {
+        rideId,
+        actor: RideEventActor.passenger,
+        actorId: passengerId,
+        action: "ride.driver_rated",
+        phase: RidePhase.trip_ended,
+        metadata: { stars },
+      },
+    });
+
+    const avg = await tx.ride.aggregate({
+      where: { driverId: ride.driverId, passengerDriverRating: { not: null } },
+      _avg: { passengerDriverRating: true },
+    });
+    const nextRating = avg._avg.passengerDriverRating ?? stars;
+    await tx.user.update({
+      where: { id: ride.driverId },
+      data: { rating: Math.round(nextRating * 10) / 10 },
+    });
+
+    return tx.ride.findUniqueOrThrow({ where: { id: rideId }, include: rideInclude });
+  }, serializable);
+
+  return toRideDto(updated, viewer);
+}
+
 export async function completeRide(rideId: string, driverId: string, viewer: Express.UserContext): Promise<RideDto> {
   const ride = await requireRideForDriver(rideId, driverId);
   if (!canDriverEndTrip(ride.phase)) {
@@ -530,10 +594,13 @@ async function transitionDriverRide(
     });
   }
   if (phase === RidePhase.trip_ended) {
+    const payHint = updated.prepaid
+      ? "Your fare was paid in the app."
+      : `Pay KSh ${updated.price.toLocaleString("en-KE")} to your driver in cash.`;
     await createNotification({
       userId: updated.passengerId,
       title: "Trip completed",
-      body: "Your trip has ended. Thanks for riding with Songa.",
+      body: `${payHint} Please rate your driver in the app.`,
       type: "ride_update",
       deepLink: `songa://rides/${updated.id}`,
       metadata: { rideId: updated.id, phase: updated.phase },

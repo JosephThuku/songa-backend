@@ -105,6 +105,7 @@ export interface RideDto {
   driverLocation: unknown;
   cancelReason: unknown;
   cancelledByRole: Ride["cancelledByRole"] | null;
+  passengerDriverRating: number | null;
   createdAt: string;
   updatedAt: string;
   passenger: PassengerEmbedDto;
@@ -208,6 +209,7 @@ export function toRideDto(ride: RideDtoInput, viewer?: { id: string; role: "pass
     driverLocation: ride.driverLocation ?? null,
     cancelReason: ride.cancelReason ?? null,
     cancelledByRole: ride.cancelledByRole ?? null,
+    passengerDriverRating: ride.passengerDriverRating ?? null,
     createdAt: ride.createdAt.toISOString(),
     updatedAt: ride.updatedAt.toISOString(),
     passenger: toPassengerEmbedDto(ride.passenger, showPassengerPhone),

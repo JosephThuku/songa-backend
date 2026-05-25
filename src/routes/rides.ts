@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { requireRole } from "../middleware/require-role.js";
 import {
   CancelRideRequestSchema,
+  RateDriverRequestSchema,
   RequestRideRequestSchema,
   SearchRideRequestSchema,
 } from "../schemas/ride.schema.js";
@@ -19,6 +20,7 @@ import {
   getActiveRide,
   getRideById,
   markArrived,
+  rateDriverForRide,
   requestRide,
   startRide,
 } from "../services/ride.service.js";
@@ -185,6 +187,18 @@ router.post(
   asyncHandler(async (req, res) => {
     const user = driverOrThrow(req);
     res.status(200).json({ ride: await completeRide(req.params.rideId, user.id, user) });
+  }),
+);
+
+router.post(
+  "/:rideId/rate",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = userOrThrow(req);
+    const parsed = RateDriverRequestSchema.parse(req.body);
+    res.status(200).json({
+      ride: await rateDriverForRide(req.params.rideId, user.id, parsed.stars, user),
+    });
   }),
 );
 

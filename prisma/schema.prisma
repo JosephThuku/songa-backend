@@ -137,9 +137,10 @@ model Ride {
   pickup           Json
   dropoff          Json
   driverLocation   Json?
-  cancelReason     Json?
-  cancelledByRole  RideEventActor?
-  createdAt        DateTime        @default(now())
+  cancelReason            Json?
+  cancelledByRole         RideEventActor?
+  passengerDriverRating   Int?
+  createdAt               DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   events           RideEvent[]
   declinedBy       String          @default("[]") @db.VarChar(4096)

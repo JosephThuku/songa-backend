@@ -146,6 +146,63 @@ describe("Stage 2 ride lifecycle", () => {
     ]);
   });
 
+  it("lets a passenger rate the driver after trip_ended and updates driver rating", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE, "passenger");
+    const driver = await login(app, DRIVER_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
+    const rideId = await createRide(app, passenger.token);
+
+    await request(app)
+      .post(`/api/rides/${rideId}/accept`)
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send()
+      .expect(200);
+    await request(app)
+      .post(`/api/rides/${rideId}/arrived`)
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send()
+      .expect(200);
+    await request(app)
+      .post(`/api/rides/${rideId}/start`)
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send()
+      .expect(200);
+    await request(app)
+      .post(`/api/rides/${rideId}/complete`)
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send()
+      .expect(200);
+
+    const tooEarly = await request(app)
+      .post(`/api/rides/${rideId}/rate`)
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send({ stars: 5 });
+    expect(tooEarly.status).toBe(403);
+
+    const rated = await request(app)
+      .post(`/api/rides/${rideId}/rate`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ stars: 5 });
+    expect(rated.status).toBe(200);
+    expect(rated.body.ride.passengerDriverRating).toBe(5);
+
+    const again = await request(app)
+      .post(`/api/rides/${rideId}/rate`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ stars: 4 });
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe("ALREADY_RATED");
+
+    const driverUser = await prisma.user.findUniqueOrThrow({ where: { id: driver.userId } });
+    expect(driverUser.rating).toBe(5);
+
+    const ratingEvent = await prisma.rideEvent.findFirst({
+      where: { rideId, action: "ride.driver_rated" },
+    });
+    expect(ratingEvent?.metadata).toEqual({ stars: 5 });
+  });
+
   it("rejects invalid phase transitions with the planned error codes", async () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");

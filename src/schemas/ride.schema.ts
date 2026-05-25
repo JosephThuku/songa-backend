@@ -65,6 +65,7 @@ const RideDtoSchema = registry.register(
     driverLocation: z.unknown().nullable(),
     cancelReason: z.unknown().nullable(),
     cancelledByRole: z.enum(["passenger", "driver", "system"]).nullable(),
+    passengerDriverRating: z.number().int().min(1).max(5).nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     passenger: PersonEmbedSchema,
@@ -120,6 +121,15 @@ export const RequestRideRequestSchema = registry.register(
       prepaid: z.boolean().optional().default(false),
       bookingId: z.string().optional(),
       paymentMethod: z.enum(["mpesa", "card"]).nullable().optional(),
+    })
+    .strict(),
+);
+
+export const RateDriverRequestSchema = registry.register(
+  "RateDriverRequest",
+  z
+    .object({
+      stars: z.number().int().min(1).max(5),
     })
     .strict(),
 );
@@ -200,6 +210,7 @@ for (const [method, path] of [
   ["post", "/api/rides/{rideId}/arrived"],
   ["post", "/api/rides/{rideId}/start"],
   ["post", "/api/rides/{rideId}/complete"],
+  ["post", "/api/rides/{rideId}/rate"],
 ] as const) {
   registry.registerPath({
     method,
@@ -208,7 +219,9 @@ for (const [method, path] of [
     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
     request: path.endsWith("/cancel")
       ? { body: { required: true, content: { "application/json": { schema: CancelRideRequestSchema } } } }
-      : undefined,
+      : path.endsWith("/rate")
+        ? { body: { required: true, content: { "application/json": { schema: RateDriverRequestSchema } } } }
+        : undefined,
     responses: {
       200: {
         description: "Ride response.",

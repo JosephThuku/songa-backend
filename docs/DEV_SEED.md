@@ -72,6 +72,19 @@ curl -s -X POST http://localhost:3000/api/rides/request \
   -d '{"pickup":{"label":"JKIA Terminal 1A","lat":-1.3192,"lng":36.9278},"dropoff":{"label":"Westlands","lat":-1.2674,"lng":36.807},"seats":[3,4],"optionId":"car"}'
 ```
 
+## End-to-end test without moving (dev)
+
+Use two browser windows (or normal + private): **passenger** `+254712000001` and **driver** `+254712345678` (James Mwangi), password `SongaDev1`.
+
+1. **Passenger:** Request ride JKIA Terminal 1A → Westlands → **Confirm order** (Car).
+2. **Driver:** Log in as Driver, go **Online**, accept the offer.
+3. **Driver sheet:** Tap **I've arrived at pickup** (no real drive needed).
+4. **Driver:** **Start trip** (or “Passenger boarded — start now”).
+5. **Driver:** **Complete trip** at dropoff.
+6. **Passenger:** Should show tracking through pickup → on trip → completed.
+
+Optional: in `__DEV__` builds, the driver overlay shows **GPS at pickup** / **GPS at dropoff** to fake location and refresh ETA (phase may move to `driver_arriving` near pickup).
+
 ## Notes
 
 - Re-run `npm run db:seed` anytime; it is idempotent (upserts by phone/registration).
