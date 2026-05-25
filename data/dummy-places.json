@@ -1,0 +1,174 @@
+{
+  "places": [
+    {
+      "placeId": "dummy_nairobi_jkia_t1a",
+      "name": "JKIA Terminal 1A",
+      "secondaryText": "Embakasi, Nairobi",
+      "fullAddress": "JKIA Terminal 1A, Embakasi, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.3192,
+      "longitude": 36.9278,
+      "keywords": ["jkia", "airport", "terminal", "flight"]
+    },
+    {
+      "placeId": "dummy_nairobi_westlands",
+      "name": "Westlands",
+      "secondaryText": "Nairobi",
+      "fullAddress": "Westlands, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.2674,
+      "longitude": 36.807,
+      "keywords": ["westlands", "mall", "sarit"]
+    },
+    {
+      "placeId": "dummy_nairobi_cbd",
+      "name": "CBD — Kenyatta Avenue",
+      "secondaryText": "Nairobi Central",
+      "fullAddress": "Kenyatta Avenue, Nairobi CBD, Kenya",
+      "city": "nairobi",
+      "latitude": -1.2864,
+      "longitude": 36.8172,
+      "keywords": ["cbd", "city", "centre", "center", "kenyatta"]
+    },
+    {
+      "placeId": "dummy_nairobi_sgr",
+      "name": "Nairobi SGR Terminus",
+      "secondaryText": "Syokimau",
+      "fullAddress": "Nairobi Standard Gauge Railway Terminus, Syokimau, Kenya",
+      "city": "nairobi",
+      "latitude": -1.3545,
+      "longitude": 36.9341,
+      "keywords": ["sgr", "train", "rail", "syokimau", "terminus"]
+    },
+    {
+      "placeId": "dummy_nairobi_wilson",
+      "name": "Wilson Airport",
+      "secondaryText": "Langata, Nairobi",
+      "fullAddress": "Wilson Airport, Langata Road, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.3217,
+      "longitude": 36.8148,
+      "keywords": ["wilson", "airport", "domestic"]
+    },
+    {
+      "placeId": "dummy_nairobi_karen",
+      "name": "Karen",
+      "secondaryText": "Nairobi",
+      "fullAddress": "Karen, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.3197,
+      "longitude": 36.7073,
+      "keywords": ["karen", "hub", "galleria"]
+    },
+    {
+      "placeId": "dummy_nairobi_gigiri",
+      "name": "Gigiri",
+      "secondaryText": "Nairobi",
+      "fullAddress": "Gigiri, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.2294,
+      "longitude": 36.8048,
+      "keywords": ["gigiri", "un", "village market"]
+    },
+    {
+      "placeId": "dummy_nairobi_thika_road",
+      "name": "Garden City Mall",
+      "secondaryText": "Thika Road, Nairobi",
+      "fullAddress": "Garden City Mall, Thika Road, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.2342,
+      "longitude": 36.8806,
+      "keywords": ["garden", "thika", "mall"]
+    },
+    {
+      "placeId": "dummy_nairobi_umoja",
+      "name": "Umoja Estate",
+      "secondaryText": "Eastlands, Nairobi",
+      "fullAddress": "Umoja I, Nairobi, Kenya",
+      "city": "nairobi",
+      "latitude": -1.2833,
+      "longitude": 36.895,
+      "keywords": ["umoja", "eastlands"]
+    },
+    {
+      "placeId": "dummy_mombasa_airport",
+      "name": "Moi International Airport",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Moi International Airport, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0348,
+      "longitude": 39.5942,
+      "keywords": ["moi", "airport", "mba", "flight", "terminal"]
+    },
+    {
+      "placeId": "dummy_mombasa_nyali",
+      "name": "Nyali Beach",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Nyali Beach, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0435,
+      "longitude": 39.7189,
+      "keywords": ["nyali", "beach", "city mall"]
+    },
+    {
+      "placeId": "dummy_mombasa_old_town",
+      "name": "Mombasa Old Town",
+      "secondaryText": "Mombasa Island",
+      "fullAddress": "Old Town, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0607,
+      "longitude": 39.6736,
+      "keywords": ["old", "town", "fort jesus", "island"]
+    },
+    {
+      "placeId": "dummy_mombasa_likoni",
+      "name": "Likoni Ferry",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Likoni Ferry Crossing, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0834,
+      "longitude": 39.6612,
+      "keywords": ["likoni", "ferry", "south coast"]
+    },
+    {
+      "placeId": "dummy_mombasa_bamburi",
+      "name": "Bamburi Beach",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Bamburi Beach, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -3.9963,
+      "longitude": 39.7283,
+      "keywords": ["bamburi", "haller park", "beach"]
+    },
+    {
+      "placeId": "dummy_mombasa_diani",
+      "name": "Diani Beach",
+      "secondaryText": "Kwale County (coast)",
+      "fullAddress": "Diani Beach, Ukunda, Kenya",
+      "city": "mombasa",
+      "latitude": -4.3224,
+      "longitude": 39.5716,
+      "keywords": ["diani", "beach", "ukunda", "south coast"]
+    },
+    {
+      "placeId": "dummy_mombasa_makadara",
+      "name": "Makadara",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Makadara, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0512,
+      "longitude": 39.6621,
+      "keywords": ["makadara", "mombasa"]
+    },
+    {
+      "placeId": "dummy_mombasa_miritini",
+      "name": "Miritini",
+      "secondaryText": "Mombasa",
+      "fullAddress": "Miritini, Mombasa, Kenya",
+      "city": "mombasa",
+      "latitude": -4.0276,
+      "longitude": 39.6134,
+      "keywords": ["miritini", "industrial"]
+    }
+  ]
+}

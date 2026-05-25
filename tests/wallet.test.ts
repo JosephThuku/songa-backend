@@ -2,7 +2,7 @@ import type { Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_PHONE = "+254717000001";
 const DRIVER_PHONE = "+254727000001";
@@ -19,6 +19,7 @@ async function login(
 }
 
 async function completeRide(app: Express, passengerToken: string, driverToken: string): Promise<{ rideId: string; price: number }> {
+  await setupDriverForDispatch(app, driverToken, { lat: -1.2674, lng: 36.807 });
   const created = await request(app)
     .post("/api/rides/request")
     .set("Authorization", `Bearer ${passengerToken}`)

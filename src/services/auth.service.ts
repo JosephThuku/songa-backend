@@ -1,7 +1,7 @@
 // Auth: register → confirm OTP → login (phone/email + password).
 
 import cuid from "cuid";
-import { OnboardingStatus, UserRole, type DriverProfile, type User } from "@prisma/client";
+import { OnboardingStatus, Prisma, UserRole, type DriverProfile, type User } from "@prisma/client";
 import type { Role } from "../lib/auth-role.js";
 import { AppError } from "../lib/errors.js";
 import { isEmailIdentifier, normalizeEmail, normalizeLoginIdentifier } from "../lib/identifier.js";
@@ -105,6 +105,7 @@ async function issueOtp(role: Role, phone: string): Promise<{ code: string }> {
 }
 
 async function createSession(
+  tx: Prisma.TransactionClient,
   user: User & { driverProfile: DriverProfile | null },
   role: Role,
   userAgent?: string | null,
@@ -113,7 +114,7 @@ async function createSession(
   const sessionId = `sess_${cuid()}`;
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
   const token = signSessionToken({ userId: user.id, role, sessionId });
-  await prisma.session.create({
+  await tx.session.create({
     data: {
       id: sessionId,
       userId: user.id,
@@ -124,6 +125,20 @@ async function createSession(
     },
   });
   return token;
+}
+
+async function ensureDriverProfileTx(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<DriverProfile> {
+  const existing = await tx.driverProfile.findUnique({ where: { userId } });
+  if (existing) return existing;
+  return tx.driverProfile.create({
+    data: {
+      userId,
+      onboardingStatus: OnboardingStatus.approved,
+    },
+  });
 }
 
 async function ensureDriverProfile(userId: string): Promise<DriverProfile> {
@@ -266,40 +281,67 @@ export async function confirmRegistration(
 /**
  * Sign in with phone or email plus password.
  */
-export async function login(input: LoginInput): Promise<LoginResult> {
+function isTransientDbError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("retry transaction") ||
+    msg.includes("Table definition has changed") ||
+    msg.includes("Deadlock found") ||
+    msg.includes("write conflict")
+  );
+}
+
+async function loginWithTransaction(input: LoginInput): Promise<LoginResult> {
   const identifier = normalizeLoginIdentifier(input.identifier);
   const role = input.role;
 
-  const user = isEmailIdentifier(identifier)
-    ? await prisma.user.findFirst({
-        where: { email: identifier, role: toPrismaRole(role) },
-        include: { driverProfile: true },
-      })
-    : await prisma.user.findUnique({
-        where: { phone_role: { phone: identifier, role: toPrismaRole(role) } },
-        include: { driverProfile: true },
-      });
+  return prisma.$transaction(async (tx) => {
+    const user = isEmailIdentifier(identifier)
+      ? await tx.user.findFirst({
+          where: { email: identifier, role: toPrismaRole(role) },
+          include: { driverProfile: true },
+        })
+      : await tx.user.findUnique({
+          where: { phone_role: { phone: identifier, role: toPrismaRole(role) } },
+          include: { driverProfile: true },
+        });
 
-  if (!user?.phoneVerified || !user.passwordHash) {
-    throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
+    if (!user?.phoneVerified || !user.passwordHash) {
+      throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
+    }
+
+    const valid = await verifyPassword(input.password, user.passwordHash);
+    if (!valid) {
+      throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
+    }
+
+    let driverProfile = user.driverProfile;
+    if (role === "driver" && !driverProfile) {
+      driverProfile = await ensureDriverProfileTx(tx, user.id);
+    }
+
+    const sessionToken = await createSession(tx, user, role, input.userAgent, input.ip);
+
+    return {
+      sessionToken,
+      user: toUserDto(user, driverProfile),
+    };
+  });
+}
+
+export async function login(input: LoginInput): Promise<LoginResult> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await loginWithTransaction(input);
+    } catch (err) {
+      lastError = err;
+      if (err instanceof AppError) throw err;
+      if (!isTransientDbError(err) || attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 75 * (attempt + 1)));
+    }
   }
-
-  const valid = await verifyPassword(input.password, user.passwordHash);
-  if (!valid) {
-    throw new AppError("INVALID_CREDENTIALS", 401, "Invalid phone/email or password.");
-  }
-
-  let driverProfile = user.driverProfile;
-  if (role === "driver" && !driverProfile) {
-    driverProfile = await ensureDriverProfile(user.id);
-  }
-
-  const sessionToken = await createSession(user, role, input.userAgent, input.ip);
-
-  return {
-    sessionToken,
-    user: toUserDto(user, driverProfile),
-  };
+  throw lastError;
 }
 
 export async function logout(sessionId: string): Promise<void> {

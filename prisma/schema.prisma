@@ -117,6 +117,7 @@ model Vehicle {
 model Ride {
   id               String          @id
   tripId           String?
+  vehicleType      String?
   passengerId      String
   passenger        User            @relation("PassengerRides", fields: [passengerId], references: [id])
   driverId         String?

@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import jwt, { type JwtPayload } from "jsonwebtoken";
+import { loadEnv } from "../config/env.js";
 
 const ALGORITHM = "HS256" as const;
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -13,11 +14,7 @@ export interface SessionTokenPayload extends JwtPayload {
 }
 
 function secret(): string {
-  const s = process.env.SESSION_JWT_SECRET;
-  if (!s || s.length === 0) {
-    throw new Error("SESSION_JWT_SECRET is not configured");
-  }
-  return s;
+  return loadEnv().SESSION_JWT_SECRET;
 }
 
 export function signSessionToken(payload: {

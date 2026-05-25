@@ -30,12 +30,21 @@ export function publishRideChanged(event: RideChangedEvent): void {
   bus.emit(RIDE_CHANGED, event);
 }
 
+/** Apply a ride.changed event received from Redis (do not re-publish upstream). */
+export function ingestRideChanged(event: RideChangedEvent): void {
+  bus.emit(RIDE_CHANGED, event);
+}
+
 export function onRideChanged(listener: (event: RideChangedEvent) => void): () => void {
   bus.on(RIDE_CHANGED, listener);
   return () => bus.off(RIDE_CHANGED, listener);
 }
 
 export function publishRideOffer(event: RideOfferEvent): void {
+  bus.emit(RIDE_OFFER, event);
+}
+
+export function ingestRideOffer(event: RideOfferEvent): void {
   bus.emit(RIDE_OFFER, event);
 }
 

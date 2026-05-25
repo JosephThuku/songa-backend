@@ -5,8 +5,10 @@ import {
   DriverLocationRequestSchema,
   DriverOnlineRequestSchema,
   NearbyDriversQuerySchema,
+  RegisterVehicleRequestSchema,
 } from "../schemas/driver.schema.js";
 import { getNearbyDrivers, setDriverOnline, updateDriverLocation } from "../services/driver.service.js";
+import { registerDriverVehicle } from "../services/vehicle.service.js";
 import { cashout, getDriverWallet } from "../services/wallet.service.js";
 import { CashoutRequestSchema } from "../schemas/wallet.schema.js";
 
@@ -36,6 +38,16 @@ router.post(
     const parsed = DriverLocationRequestSchema.parse(req.body);
     await updateDriverLocation(user.id, parsed);
     res.status(204).send();
+  }),
+);
+
+router.post(
+  "/me/vehicle",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = driverUser(req);
+    const parsed = RegisterVehicleRequestSchema.parse(req.body);
+    res.status(200).json(await registerDriverVehicle(user.id, parsed));
   }),
 );
 

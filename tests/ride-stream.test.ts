@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "node:http";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_PHONE = "+254714000001";
 const DRIVER_PHONE = "+254724000001";
@@ -100,6 +100,7 @@ describe("GET /api/rides/active/stream", () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
     const created = await request(app)
       .post("/api/rides/request")
       .set("Authorization", `Bearer ${passenger.token}`)

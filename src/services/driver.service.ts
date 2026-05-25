@@ -1,7 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, RidePhase } from "@prisma/client";
+import { driverLocationFreshSince } from "../lib/driver-location-freshness.js";
 import { AppError } from "../lib/errors.js";
+import { estimatePickupEtaMinutes, haversineDistanceKm, type LatLng } from "../lib/geo.js";
+import { findDriverIdsNear, indexDriverLocation, removeDriverFromGeoIndex } from "../lib/driver-geo.js";
 import { prisma } from "../lib/prisma.js";
 import { publishRideChanged } from "../lib/ride-events.js";
+import { syncActiveRideFromDriverLocation } from "../lib/ride-location-sync.js";
 
 export interface DriverOnlineResult {
   isOnline: boolean;
@@ -9,9 +13,20 @@ export interface DriverOnlineResult {
 }
 
 export async function setDriverOnline(driverId: string, isOnline: boolean): Promise<DriverOnlineResult> {
-  const profile = await prisma.driverProfile.findUnique({ where: { userId: driverId } });
+  const profile = await prisma.driverProfile.findUnique({
+    where: { userId: driverId },
+    include: { vehicle: true },
+  });
   if (!profile || profile.onboardingStatus !== "approved") {
     throw new AppError("DRIVER_NOT_APPROVED", 403, "Driver is not approved.");
+  }
+  if (isOnline) {
+    if (!profile.vehicleId || !profile.vehicle) {
+      throw new AppError("VEHICLE_REQUIRED", 409, "Register a vehicle before going online.");
+    }
+    if (profile.vehicle.status !== "Activated") {
+      throw new AppError("VEHICLE_NOT_ACTIVATED", 409, "Vehicle is not activated.");
+    }
   }
 
   const onlineSince = isOnline ? profile.onlineSince ?? new Date() : null;
@@ -19,6 +34,14 @@ export async function setDriverOnline(driverId: string, isOnline: boolean): Prom
     where: { userId: driverId },
     data: { isOnline, onlineSince },
   });
+  if (isOnline && profile.location && typeof profile.location === "object") {
+    const loc = profile.location as Record<string, unknown>;
+    if (typeof loc.lat === "number" && typeof loc.lng === "number") {
+      await indexDriverLocation(driverId, loc.lng, loc.lat);
+    }
+  } else if (!isOnline) {
+    await removeDriverFromGeoIndex(driverId);
+  }
   return {
     isOnline: updated.isOnline,
     onlineSince: updated.onlineSince ? updated.onlineSince.toISOString() : null,
@@ -78,17 +101,94 @@ function parseLocation(value: unknown): { lat: number; lng: number; heading?: nu
   };
 }
 
-export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthKm = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * earthKm * Math.asin(Math.sqrt(h));
+/** @deprecated Prefer `haversineDistanceKm` from `lib/geo.js`. */
+export function distanceKm(a: LatLng, b: LatLng): number {
+  return haversineDistanceKm(a, b);
+}
+
+export interface DriverNearPickup {
+  driverId: string;
+  name: string | null;
+  avatar: string;
+  avatarUrl: string | null;
+  rating: number;
+  pickupDistanceKm: number;
+  pickupEtaMinutes: number;
+  vehicle: NearbyDriverDto["vehicle"];
+  location: NearbyDriverDto["location"];
+}
+
+const ACTIVE_RIDE_PHASES = {
+  notIn: [RidePhase.trip_ended, RidePhase.cancelled],
+};
+
+async function loadEligibleDriverProfiles(vehicleType?: string) {
+  const freshSince = driverLocationFreshSince();
+  return prisma.driverProfile.findMany({
+    where: {
+      isOnline: true,
+      onboardingStatus: "approved",
+      locationUpdatedAt: { gte: freshSince },
+      vehicleId: { not: null },
+      ...(vehicleType && vehicleType !== "All" ? { vehicle: { type: vehicleType } } : {}),
+    },
+    include: { user: true, vehicle: true },
+  });
+}
+
+/** Online, fresh-location drivers sorted by distance to pickup (Uber-style supply search). */
+export async function findDriversNearPickup(input: {
+  pickup: LatLng;
+  vehicleType?: string;
+  radiusKm?: number;
+  limit?: number;
+}): Promise<DriverNearPickup[]> {
+  const radiusKm = input.radiusKm ?? 25;
+  const geoDriverIds = await findDriverIdsNear(input.pickup.lng, input.pickup.lat, radiusKm);
+  const useGeoFilter = geoDriverIds.length > 0;
+  const geoSet = new Set(geoDriverIds);
+  const profiles = await loadEligibleDriverProfiles(input.vehicleType);
+  const candidates: DriverNearPickup[] = [];
+
+  for (const profile of profiles) {
+    if (useGeoFilter && !geoSet.has(profile.userId)) continue;
+    const location = parseLocation(profile.location);
+    if (!location || !profile.locationUpdatedAt) continue;
+
+    const busy = await prisma.ride.findFirst({
+      where: { driverId: profile.userId, phase: ACTIVE_RIDE_PHASES },
+      select: { id: true },
+    });
+    if (busy) continue;
+
+    const pickupDistanceKm = haversineDistanceKm(input.pickup, location);
+    if (pickupDistanceKm > radiusKm) continue;
+
+    candidates.push({
+      driverId: profile.userId,
+      name: profile.user.name ?? null,
+      avatar: initials(profile.user.name),
+      avatarUrl: profile.user.avatarUrl ?? null,
+      rating: profile.user.rating,
+      pickupDistanceKm: Math.round(pickupDistanceKm * 10) / 10,
+      pickupEtaMinutes: estimatePickupEtaMinutes(pickupDistanceKm),
+      vehicle: profile.vehicle
+        ? {
+            type: profile.vehicle.type,
+            label: `${profile.vehicle.make} ${profile.vehicle.model}`,
+            registration: profile.vehicle.registration,
+            color: profile.vehicle.color,
+            capacity: profile.vehicle.seats,
+            seatsAvailable: Math.max(1, profile.vehicle.seats - 1),
+          }
+        : null,
+      location: { ...location, updatedAt: profile.locationUpdatedAt.toISOString() },
+    });
+  }
+
+  candidates.sort((a, b) => a.pickupDistanceKm - b.pickupDistanceKm);
+  const limit = input.limit ?? candidates.length;
+  return candidates.slice(0, limit);
 }
 
 export async function updateDriverLocation(driverId: string, input: DriverLocationInput): Promise<void> {
@@ -110,12 +210,10 @@ export async function updateDriverLocation(driverId: string, input: DriverLocati
   const activeRide = await prisma.ride.findFirst({
     where: { driverId, phase: { notIn: ["trip_ended", "cancelled"] } },
   });
+  await indexDriverLocation(driverId, input.lng, input.lat);
+
   if (activeRide) {
-    await prisma.ride.update({
-      where: { id: activeRide.id },
-      data: { driverLocation: location },
-    });
-    publishRideChanged({ rideId: activeRide.id, phase: activeRide.phase });
+    await syncActiveRideFromDriverLocation(activeRide.id, location);
   }
 }
 
@@ -127,7 +225,7 @@ export async function getNearbyDrivers(input: {
 }): Promise<NearbyDriverDto[]> {
   const origin = { lat: input.lat, lng: input.lng };
   const radiusKm = input.radiusKm ?? 25;
-  const freshSince = new Date(Date.now() - 60 * 1000);
+  const freshSince = driverLocationFreshSince();
   const profiles = await prisma.driverProfile.findMany({
     where: {
       isOnline: true,

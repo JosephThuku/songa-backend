@@ -34,6 +34,9 @@ function parseBody<T>(
     if (issue?.path[0] === "role") {
       throw new AppError("INVALID_ROLE", 400, "Invalid role.");
     }
+    if (issue?.path[0] === "password") {
+      throw new AppError("WEAK_PASSWORD", 400, "Password does not meet requirements.");
+    }
     throw new AppError("INVALID_INPUT", 400, "Invalid input.");
   }
   return parsed.data;

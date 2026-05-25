@@ -1,10 +1,11 @@
 import cuid from "cuid";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
+import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
 import { prisma } from "../lib/prisma.js";
 import type { PlaceDto } from "../lib/responses.js";
 
-const PLATFORM_FEE = 50;
+const PLATFORM_FEE = PLATFORM_FEE_KES;
 
 export interface CreateBookingInput {
   passengerId: string;
@@ -23,22 +24,9 @@ function placeJson(place: PlaceDto): Prisma.InputJsonObject {
   };
 }
 
-function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthKm = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * earthKm * Math.asin(Math.sqrt(h));
-}
-
 function subtotal(input: CreateBookingInput): number {
-  const base = Math.max(200, Math.round(distanceKm(input.pickup, input.dropoff) * 100));
-  return base * Math.max(1, input.seats.length);
+  const fare = computeFare(input.pickup, input.dropoff);
+  return fare.total * Math.max(1, input.seats.length);
 }
 
 const bookingInclude = { payments: { orderBy: { createdAt: "desc" as const }, take: 1 } };
@@ -79,6 +67,18 @@ export async function startPayment(bookingId: string, passengerId: string, provi
       checkoutUrl: `https://payments.songa.local/checkout/${bookingId}?ref=${reference}`,
     },
   });
+
+  if (process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true") {
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: "paid" },
+    });
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: "succeeded" },
+    });
+  }
+
   return { payment: toPaymentDto(payment) };
 }
 

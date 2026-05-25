@@ -148,10 +148,10 @@ describe("GET /api/auth/me and POST /api/auth/logout", () => {
   it("rejects tampered JWT", async () => {
     const app = buildTestApp();
     const { sessionToken } = await createAuthSession(app, VALID_PHONE, "passenger");
-    const decoded = jwt.decode(sessionToken) as { sessionId: string };
+    const decoded = jwt.decode(sessionToken) as { sid: string };
     const bad = jwt.sign(
-      { userId: "usr_fake", role: "passenger", sessionId: decoded.sessionId },
-      process.env.JWT_SECRET!,
+      { sub: "usr_fake", role: "passenger", sid: decoded.sessionId },
+      process.env.SESSION_JWT_SECRET!,
     );
     const res = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${bad}`);
     expect(res.status).toBe(401);

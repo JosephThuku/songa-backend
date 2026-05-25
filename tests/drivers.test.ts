@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_PHONE = "+254715000001";
 const DRIVER_PHONE = "+254725000001";
@@ -101,11 +101,10 @@ describe("driver location, nearby, and offers", () => {
     expect(offline.status).toBe(409);
     expect(offline.body.error.code).toBe("DRIVER_OFFLINE");
 
-    await request(app)
-      .patch("/api/drivers/me/online")
-      .set("Authorization", `Bearer ${driver.token}`)
-      .send({ isOnline: true })
-      .expect(200);
+    await setupDriverForDispatch(app, driver.token, {
+      lat: locationBody.lat,
+      lng: locationBody.lng,
+    });
 
     await request(app)
       .post("/api/drivers/me/location")
@@ -119,8 +118,10 @@ describe("driver location, nearby, and offers", () => {
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
 
-    await request(app).patch("/api/drivers/me/online").set("Authorization", `Bearer ${driver.token}`).send({ isOnline: true });
-    await request(app).post("/api/drivers/me/location").set("Authorization", `Bearer ${driver.token}`).send(locationBody);
+    await setupDriverForDispatch(app, driver.token, {
+      lat: locationBody.lat,
+      lng: locationBody.lng,
+    });
 
     const nearby = await request(app)
       .get("/api/drivers/nearby")
@@ -152,8 +153,10 @@ describe("driver location, nearby, and offers", () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
-    await request(app).patch("/api/drivers/me/online").set("Authorization", `Bearer ${driver.token}`).send({ isOnline: true });
-    await request(app).post("/api/drivers/me/location").set("Authorization", `Bearer ${driver.token}`).send(locationBody);
+    await setupDriverForDispatch(app, driver.token, {
+      lat: locationBody.lat,
+      lng: locationBody.lng,
+    });
 
     const baseUrl = await listen(app);
     const controller = new AbortController();

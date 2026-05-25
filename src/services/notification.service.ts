@@ -1,4 +1,5 @@
 import cuid from "cuid";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 export async function createNotification(input: {
@@ -17,7 +18,7 @@ export async function createNotification(input: {
       body: input.body,
       type: input.type,
       deepLink: input.deepLink ?? null,
-      metadata: input.metadata,
+      metadata: input.metadata as Prisma.InputJsonValue | undefined,
     },
   });
 }

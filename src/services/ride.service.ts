@@ -1,5 +1,6 @@
 import cuid from "cuid";
 import { BookingMode, Prisma, RideEventActor, RidePhase } from "@prisma/client";
+import { driverLocationFreshSince } from "../lib/driver-location-freshness.js";
 import { AppError } from "../lib/errors.js";
 import { requirePaidBooking } from "./booking.service.js";
 import { getBookingMode } from "../lib/ride-booking-mode.js";
@@ -12,8 +13,13 @@ import {
   isTerminalPhase,
 } from "../lib/ride-machine.js";
 import { prisma } from "../lib/prisma.js";
+import { haversineDistanceKm, estimatePickupEtaMinutes } from "../lib/geo.js";
 import { publishRideChanged, publishRideOffer } from "../lib/ride-events.js";
+import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
+import { getRideProduct } from "../lib/ride-products.js";
 import { toRideDto, type PlaceDto, type RideDto } from "../lib/responses.js";
+import { withDispatchLock } from "../lib/dispatch-lock.js";
+import { cancelOfferTimeout, scheduleOfferTimeout } from "../lib/offer-timeout.js";
 import { createNotification } from "./notification.service.js";
 
 const rideInclude = {
@@ -23,16 +29,17 @@ const rideInclude = {
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
 
 const CANCEL_LABELS: Record<string, string> = {
-  plans_changed: "Plans changed",
+  plans_changed: "My plans changed",
   wait_too_long: "Wait time is too long",
   found_another: "Found another ride",
-  wrong_location: "Wrong pickup location",
+  wrong_location: "Wrong pickup or drop-off",
   driver_asked: "Driver asked me to cancel",
   other: "Other",
 };
 
 export interface RequestRideInput {
   passengerId: string;
+  optionId?: string;
   tripId?: string;
   listingId?: string;
   preferredDriverId?: string;
@@ -60,21 +67,13 @@ function serializeSeats(seats: number[] | undefined): string | null {
   return seats && seats.length > 0 ? seats.join(",") : null;
 }
 
-function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthKm = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * earthKm * Math.asin(Math.sqrt(h));
-}
-
-function priceFor(input: RequestRideInput): number {
-  return Math.max(200, Math.round(distanceKm(input.pickup, input.dropoff) * 100));
+function resolveProduct(input: RequestRideInput) {
+  const optionId = input.optionId ?? "car";
+  const product = getRideProduct(optionId);
+  if (!product) {
+    throw new AppError("INVALID_INPUT", 400, "Unknown ride option.");
+  }
+  return product;
 }
 
 function placeJson(place: PlaceDto): Prisma.InputJsonObject {
@@ -87,8 +86,11 @@ function placeJson(place: PlaceDto): Prisma.InputJsonObject {
 }
 
 function validateCancelReason(reasonId: string, reasonLabel: string, detail?: string | null) {
-  const expected = CANCEL_LABELS[reasonId];
-  if (!expected || expected !== reasonLabel) {
+  const canonicalLabel = CANCEL_LABELS[reasonId];
+  if (!canonicalLabel) {
+    throw new AppError("INVALID_INPUT", 400, "Invalid cancel reason.");
+  }
+  if (reasonLabel !== canonicalLabel) {
     throw new AppError("INVALID_INPUT", 400, "Invalid cancel reason.");
   }
   const trimmed = detail?.trim() ?? "";
@@ -97,7 +99,7 @@ function validateCancelReason(reasonId: string, reasonLabel: string, detail?: st
   }
   return {
     reasonId,
-    reasonLabel,
+    reasonLabel: canonicalLabel,
     detail: reasonId === "other" ? trimmed : trimmed.length > 0 ? trimmed : null,
   };
 }
@@ -138,6 +140,9 @@ async function ensureDriverNotBusy(driverId: string) {
 }
 
 export async function requestRide(input: RequestRideInput, viewer: Express.UserContext): Promise<RideDto> {
+  const product = resolveProduct(input);
+  const fare = computeFare(input.pickup, input.dropoff);
+  const price = Math.round(fare.total * product.priceMultiplier);
   const bookingMode: BookingMode = getBookingMode(input.pickup.label, input.dropoff.label);
   if (bookingMode === "seat_selection" && (!input.seats || input.seats.length === 0)) {
     throw new AppError("SEATS_REQUIRED", 409, "Seats are required for terminal trips.");
@@ -162,12 +167,15 @@ export async function requestRide(input: RequestRideInput, viewer: Express.UserC
       data: {
         id: `ride_${cuid()}`,
         tripId: input.tripId ?? input.listingId ?? null,
+        vehicleType: product.vehicleType,
         passengerId: input.passengerId,
         bookingMode,
         prepaid: input.prepaid ?? false,
         bookingId: input.bookingId ?? null,
         paymentMethod: input.paymentMethod ?? null,
-        price: priceFor(input),
+        price,
+        distanceKm: fare.distanceKm,
+        etaMinutes: fare.durationMinutes,
         seats: serializeSeats(input.seats),
         pickup: placeJson(input.pickup),
         dropoff: placeJson(input.dropoff),
@@ -186,39 +194,59 @@ export async function requestRide(input: RequestRideInput, viewer: Express.UserC
   }, serializable);
 
   publishRideChanged({ rideId: ride.id, phase: ride.phase });
-  await dispatchRideOffers(ride, input.preferredDriverId);
+  await dispatchRideOffers(ride, {
+    preferredDriverId: input.preferredDriverId,
+    vehicleType: product.vehicleType,
+  });
+  scheduleOfferTimeout(ride.id);
   return toRideDto(ride, viewer);
 }
 
-async function dispatchRideOffers(ride: Awaited<ReturnType<typeof loadRide>> & NonNullable<unknown>, preferredDriverId?: string) {
+/** Re-offer to the next eligible drivers when the batch offer TTL expires. */
+export async function redispatchRideIfPending(rideId: string): Promise<void> {
+  await withDispatchLock(rideId, async () => {
+    const ride = await loadRide(rideId);
+    if (!ride || ride.phase !== RidePhase.finding_driver || ride.driverId) return;
+    await dispatchRideOffers(ride, { vehicleType: ride.vehicleType });
+    scheduleOfferTimeout(rideId);
+  });
+}
+
+async function dispatchRideOffers(
+  ride: Awaited<ReturnType<typeof loadRide>> & NonNullable<unknown>,
+  options: { preferredDriverId?: string; vehicleType?: string | null },
+) {
   const pickup = toPoint(ride.pickup);
-  const freshSince = new Date(Date.now() - 60 * 1000);
+  const freshSince = driverLocationFreshSince();
   const profiles = await prisma.driverProfile.findMany({
     where: {
       isOnline: true,
       onboardingStatus: "approved",
       locationUpdatedAt: { gte: freshSince },
-      ...(preferredDriverId ? { userId: preferredDriverId } : {}),
+      vehicleId: { not: null },
+      ...(options.preferredDriverId ? { userId: options.preferredDriverId } : {}),
+      ...(options.vehicleType ? { vehicle: { type: options.vehicleType } } : {}),
     },
-    include: { user: true },
+    include: { user: true, vehicle: true },
   });
 
   const candidates = [];
   for (const profile of profiles) {
+    if (hasDeclined(ride.declinedBy, profile.userId)) continue;
     const active = await prisma.ride.findFirst({
       where: { driverId: profile.userId, phase: activePhaseFilter() },
       select: { id: true },
     });
     if (active) continue;
     const location = toPoint(profile.location);
-    candidates.push({ profile, distance: pickup && location ? distanceKm(pickup, location) : Number.POSITIVE_INFINITY });
+    candidates.push({ profile, distance: pickup && location ? haversineDistanceKm(pickup, location) : Number.POSITIVE_INFINITY });
   }
   candidates.sort((a, b) => a.distance - b.distance);
 
   const expiresAt = new Date(Date.now() + 15 * 1000).toISOString();
   const pickupLabel = placeLabel(ride.pickup);
   const dropoffLabel = placeLabel(ride.dropoff);
-  for (const { profile } of candidates.slice(0, preferredDriverId ? 1 : 5)) {
+  for (const { profile } of candidates.slice(0, options.preferredDriverId ? 1 : 5)) {
     publishRideOffer({
       driverId: profile.userId,
       offer: {
@@ -306,14 +334,21 @@ export async function cancelRide(input: CancelRideInput, viewer: Express.UserCon
     return tx.ride.findUniqueOrThrow({ where: { id: ride.id }, include: rideInclude });
   }, serializable);
   publishRideChanged({ rideId: updated.id, phase: updated.phase });
+  cancelOfferTimeout(updated.id);
   return toRideDto(updated, viewer);
 }
 
 export async function acceptRide(rideId: string, driverId: string, viewer: Express.UserContext): Promise<RideDto> {
   const updated = await prisma.$transaction(async (tx) => {
-    const profile = await tx.driverProfile.findUnique({ where: { userId: driverId } });
+    const profile = await tx.driverProfile.findUnique({
+      where: { userId: driverId },
+      include: { vehicle: true },
+    });
     if (!profile || profile.onboardingStatus !== "approved") {
       throw new AppError("DRIVER_NOT_APPROVED", 403, "Driver is not approved.");
+    }
+    if (!profile.vehicle) {
+      throw new AppError("VEHICLE_REQUIRED", 409, "Driver has no registered vehicle.");
     }
     const ride = await tx.ride.findUnique({ where: { id: rideId }, include: rideInclude });
     if (!ride) throw new AppError("RIDE_NOT_FOUND", 404, "Ride not found.");
@@ -323,18 +358,33 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
     if (ride.phase !== RidePhase.finding_driver || ride.driverId) {
       throw new AppError("OFFER_EXPIRED", 409, "Ride offer is no longer available.");
     }
+    if (ride.vehicleType && profile.vehicle.type !== ride.vehicleType) {
+      throw new AppError("INVALID_VEHICLE_TYPE", 409, "Driver vehicle does not match this ride option.");
+    }
+    const seatNumbers = ride.seats
+      ? ride.seats.split(",").map((s) => Number.parseInt(s, 10)).filter((n) => !Number.isNaN(n))
+      : [];
+    if (seatNumbers.length > 0 && seatNumbers.length > profile.vehicle.seats) {
+      throw new AppError("SEATS_EXCEED_CAPACITY", 409, "Requested seats exceed vehicle capacity.");
+    }
     const active = await tx.ride.findFirst({
       where: { driverId, phase: activePhaseFilter() },
     });
     if (active) throw new AppError("DRIVER_BUSY", 409, "Driver already has an active ride.");
+
+    const driverPoint = toPoint(profile.location);
+    const pickupPoint = toPoint(ride.pickup);
+    const pickupDistanceKm =
+      driverPoint && pickupPoint ? haversineDistanceKm(pickupPoint, driverPoint) : null;
+    const pickupEta = pickupDistanceKm !== null ? estimatePickupEtaMinutes(pickupDistanceKm) : 8;
 
     const write = await tx.ride.updateMany({
       where: { id: ride.id, phase: RidePhase.finding_driver, driverId: null },
       data: {
         driverId,
         phase: RidePhase.driver_accepted,
-        etaMinutes: 8,
-        distanceKm: 3.4,
+        etaMinutes: pickupEta,
+        ...(pickupDistanceKm !== null ? { distanceKm: Math.round(pickupDistanceKm * 10) / 10 } : {}),
       },
     });
     if (write.count !== 1) throw new AppError("OFFER_EXPIRED", 409, "Ride offer is no longer available.");
@@ -350,6 +400,7 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
     return tx.ride.findUniqueOrThrow({ where: { id: ride.id }, include: rideInclude });
   }, serializable);
   publishRideChanged({ rideId: updated.id, phase: updated.phase });
+  cancelOfferTimeout(updated.id);
   const driverName = updated.driver?.name ?? "Your driver";
   await createNotification({
     userId: updated.passengerId,
@@ -451,7 +502,7 @@ async function transitionDriverRide(
           rideId,
           type: "credit",
           label: tripCreditLabel(currentRide.pickup, currentRide.dropoff),
-          amount: Math.max(0, currentRide.price - 50),
+          amount: Math.max(0, currentRide.price - PLATFORM_FEE_KES),
           status: "posted",
         },
       });

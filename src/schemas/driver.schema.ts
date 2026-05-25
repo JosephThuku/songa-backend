@@ -63,6 +63,51 @@ registry.registerPath({
   },
 });
 
+export const RegisterVehicleRequestSchema = registry.register(
+  "RegisterVehicleRequest",
+  z
+    .object({
+      type: z.enum(["Car", "Van", "Minibus", "Bike", "Tuktuk"]),
+      make: z.string().trim().min(1),
+      model: z.string().trim().min(1),
+      registration: z.string().trim().min(1),
+      color: z.string().trim().min(1),
+      year: z.string().trim().optional(),
+      seats: z.number().int().min(1).max(60),
+    })
+    .strict(),
+);
+
+const VehicleResponseSchema = registry.register(
+  "VehicleResponse",
+  z.object({
+    vehicle: z.object({
+      id: z.string(),
+      type: z.string(),
+      make: z.string(),
+      model: z.string(),
+      registration: z.string(),
+      color: z.string(),
+      year: z.string().nullable(),
+      seats: z.number().int(),
+      status: z.string(),
+    }),
+  }),
+);
+
+registry.registerPath({
+  method: "post",
+  path: "/api/drivers/me/vehicle",
+  tags: ["Drivers"],
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { body: { required: true, content: { "application/json": { schema: RegisterVehicleRequestSchema } } } },
+  responses: {
+    200: { description: "Vehicle registered.", content: { "application/json": { schema: VehicleResponseSchema } } },
+    400: { description: "Invalid input.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    403: { description: "Driver not approved.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/drivers/nearby",

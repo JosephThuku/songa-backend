@@ -85,6 +85,7 @@ export interface PassengerEmbedDto {
 export interface RideDto {
   id: string;
   tripId: string | null;
+  vehicleType: string | null;
   passengerId: string;
   driverId: string | null;
   phase: Ride["phase"];
@@ -187,6 +188,7 @@ export function toRideDto(ride: RideDtoInput, viewer?: { id: string; role: "pass
   return {
     id: ride.id,
     tripId: ride.tripId ?? null,
+    vehicleType: ride.vehicleType ?? null,
     passengerId: ride.passengerId,
     driverId: ride.driverId ?? null,
     phase: ride.phase,

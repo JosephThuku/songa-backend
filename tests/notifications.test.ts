@@ -2,7 +2,7 @@ import type { Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_PHONE = "+254718000001";
 const DRIVER_PHONE = "+254728000001";
@@ -56,12 +56,7 @@ describe("notifications and devices", () => {
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
 
-    await request(app).patch("/api/drivers/me/online").set("Authorization", `Bearer ${driver.token}`).send({ isOnline: true });
-    await request(app)
-      .post("/api/drivers/me/location")
-      .set("Authorization", `Bearer ${driver.token}`)
-      .send({ lat: -1.2674, lng: 36.807 })
-      .expect(204);
+    await setupDriverForDispatch(app, driver.token, { lat: -1.2674, lng: 36.807 });
 
     const created = await request(app)
       .post("/api/rides/request")

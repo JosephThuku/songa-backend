@@ -2,7 +2,7 @@ import type { Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_PHONE = "+254713000001";
 const PASSENGER_2_PHONE = "+254713000002";
@@ -46,6 +46,25 @@ async function createRide(app: Express, passengerToken: string): Promise<string>
 }
 
 describe("Stage 2 ride lifecycle", () => {
+  it("stores vehicleType and Uber fare when optionId is provided", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE, "passenger");
+    const { computeFare } = await import("../src/lib/ride-pricing.js");
+
+    const res = await requestRide(
+      app,
+      passenger.token,
+      rideRequestBody({ optionId: "van" }),
+    );
+    expect(res.status).toBe(201);
+    expect(res.body.ride.vehicleType).toBe("Van");
+    const fare = computeFare(
+      { label: "JKIA Terminal 1A", lat: -1.3192, lng: 36.9278 },
+      { label: "Westlands", lat: -1.2674, lng: 36.807 },
+    );
+    expect(res.body.ride.price).toBe(Math.round(fare.total * 1.3));
+  });
+
   it("lets a passenger request a terminal ride and logs ride.requested", async () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
@@ -83,6 +102,7 @@ describe("Stage 2 ride lifecycle", () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
     const rideId = await createRide(app, passenger.token);
 
     const accepted = await request(app)
@@ -130,6 +150,7 @@ describe("Stage 2 ride lifecycle", () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
     const rideId = await createRide(app, passenger.token);
 
     const startEarly = await request(app)
@@ -235,6 +256,8 @@ describe("Stage 2 ride lifecycle", () => {
     const passenger2 = await login(app, PASSENGER_2_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
     const driver2 = await login(app, DRIVER_2_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
+    await setupDriverForDispatch(app, driver2.token);
 
     const first = await request(app)
       .post("/api/rides/request")
@@ -263,7 +286,7 @@ describe("Stage 2 ride lifecycle", () => {
     const otherPassengerCancel = await request(app)
       .post(`/api/rides/${first.body.ride.id}/cancel`)
       .set("Authorization", `Bearer ${passenger2.token}`)
-      .send({ reasonId: "plans_changed", reasonLabel: "Plans changed", detail: null });
+      .send({ reasonId: "plans_changed", reasonLabel: "My plans changed", detail: null });
     expect(otherPassengerCancel.status).toBe(404);
     expect(otherPassengerCancel.body.error.code).toBe("RIDE_NOT_FOUND");
 
@@ -308,6 +331,7 @@ describe("Stage 2 ride lifecycle", () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.token);
     const rideId = await createRide(app, passenger.token);
 
     const passengerActive = await request(app)

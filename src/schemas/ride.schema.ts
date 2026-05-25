@@ -36,6 +36,7 @@ const RideDtoSchema = registry.register(
   z.object({
     id: z.string(),
     tripId: z.string().nullable(),
+    vehicleType: z.string().nullable(),
     passengerId: z.string(),
     driverId: z.string().nullable(),
     phase: z.enum([
@@ -72,10 +73,44 @@ const RideDtoSchema = registry.register(
   }),
 );
 
+const RideSearchOptionSchema = z.object({
+  optionId: z.string(),
+  vehicleType: z.string(),
+  label: z.string(),
+  capacity: z.number().int(),
+  available: z.boolean(),
+  pickupEtaMinutes: z.number().int().nullable(),
+  priceAmount: z.number().int().nullable(),
+  currency: z.literal("KES"),
+});
+
+export const SearchRideRequestSchema = registry.register(
+  "SearchRideRequest",
+  z
+    .object({
+      pickup: PlaceSchema,
+      dropoff: PlaceSchema,
+    })
+    .strict(),
+);
+
+export const SearchRideResponseSchema = registry.register(
+  "SearchRideResponse",
+  z.object({
+    pickup: PlaceSchema,
+    dropoff: PlaceSchema,
+    tripDurationMinutes: z.number().int(),
+    bookingMode: z.enum(["seat_selection", "pay_on_arrival"]),
+    requiresSeats: z.boolean(),
+    options: z.array(RideSearchOptionSchema),
+  }),
+);
+
 export const RequestRideRequestSchema = registry.register(
   "RequestRideRequest",
   z
     .object({
+      optionId: z.string().optional(),
       tripId: z.string().optional(),
       listingId: z.string().optional(),
       preferredDriverId: z.string().optional(),
@@ -110,6 +145,19 @@ export const CancelRideRequestSchema = registry.register(
 const RideResponseSchema = registry.register("RideResponse", z.object({ ride: RideDtoSchema }));
 const ActiveRideResponseSchema = registry.register("ActiveRideResponse", z.object({ ride: RideDtoSchema.nullable() }));
 const OkResponseSchema = registry.register("OkResponse", z.object({ ok: z.literal(true) }));
+
+registry.registerPath({
+  method: "post",
+  path: "/api/rides/search",
+  tags: ["Rides"],
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { body: { required: true, content: { "application/json": { schema: SearchRideRequestSchema } } } },
+  responses: {
+    200: { description: "Ride options near pickup.", content: { "application/json": { schema: SearchRideResponseSchema } } },
+    400: { description: "Invalid input.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    401: { description: "Unauthorized.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
 
 registry.registerPath({
   method: "post",

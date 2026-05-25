@@ -7,6 +7,7 @@ import devicesRouter from "./devices.js";
 import driversRouter from "./drivers.js";
 import docsRouter from "./docs.js";
 import notificationsRouter from "./notifications.js";
+import placesRouter from "./places.js";
 import ridesRouter from "./rides.js";
 
 const router: Router = Router();
@@ -21,6 +22,7 @@ router.use("/rides", ridesRouter);
 router.use("/drivers", driversRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/devices", devicesRouter);
+router.use("/places", placesRouter);
 
 // Docs surface — Swagger UI at /api/docs, raw spec at /api/openapi.json.
 router.use("/", docsRouter);

@@ -147,9 +147,48 @@ export class MemoryClient implements RedisLike {
     return zset ? zset.members.size : 0;
   }
 
+  private geos = new Map<string, Map<string, { lng: number; lat: number }>>();
+
+  async geoadd(key: string, lng: number, lat: number, member: string): Promise<number> {
+    let bucket = this.geos.get(key);
+    if (!bucket) {
+      bucket = new Map();
+      this.geos.set(key, bucket);
+    }
+    const isNew = !bucket.has(member);
+    bucket.set(member, { lng, lat });
+    return isNew ? 1 : 0;
+  }
+
+  async zrem(key: string, member: string): Promise<number> {
+    const bucket = this.geos.get(key);
+    if (!bucket || !bucket.delete(member)) return 0;
+    return 1;
+  }
+
+  async georadius(
+    key: string,
+    lng: number,
+    lat: number,
+    radiusKm: number,
+  ): Promise<string[]> {
+    const bucket = this.geos.get(key);
+    if (!bucket) return [];
+    const { haversineDistanceKm } = await import("./geo.js");
+    const origin = { lat, lng };
+    const hits: { member: string; distance: number }[] = [];
+    for (const [member, point] of bucket.entries()) {
+      const distance = haversineDistanceKm(origin, point);
+      if (distance <= radiusKm) hits.push({ member, distance });
+    }
+    hits.sort((a, b) => a.distance - b.distance);
+    return hits.map((h) => h.member);
+  }
+
   async quit(): Promise<void> {
     this.store.clear();
     this.zsets.clear();
+    this.geos.clear();
   }
 }
 
@@ -211,6 +250,29 @@ export class IoredisClient implements RedisLike {
 
   async zcard(key: string): Promise<number> {
     return this.client.zcard(key);
+  }
+
+  async geoadd(key: string, lng: number, lat: number, member: string): Promise<number> {
+    return this.client.geoadd(key, lng, lat, member);
+  }
+
+  async zrem(key: string, member: string): Promise<number> {
+    return this.client.zrem(key, member);
+  }
+
+  async georadius(
+    key: string,
+    lng: number,
+    lat: number,
+    radiusKm: number,
+  ): Promise<string[]> {
+    const result = await this.client.georadius(key, lng, lat, radiusKm, "km", "ASC");
+    if (!Array.isArray(result)) return [];
+    return result.map((row) => (Array.isArray(row) ? String(row[0]) : String(row)));
+  }
+
+  async publish(channel: string, message: string): Promise<number> {
+    return this.client.publish(channel, message);
   }
 
   async quit(): Promise<void> {

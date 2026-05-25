@@ -1,6 +1,9 @@
 // NEW — Zod-validated env loader. Import side-effect-free; call loadEnv() once on boot.
 
-import "dotenv/config";
+import dotenv from "dotenv";
+if (process.env.NODE_ENV !== "test") {
+  dotenv.config();
+}
 import { z } from "zod";
 
 const envSchema = z.object({
