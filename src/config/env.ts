@@ -67,10 +67,41 @@ export function shouldAllowAllCorsOrigins(env: Env): boolean {
   return corsOrigins(env).length === 0;
 }
 
-export function corsOriginSetting(env: Env): boolean | string[] {
+/** Expo web tunnel / local dev hosts (not used when allow-all is on). */
+export function isExpoDevWebOrigin(origin: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== "http:" && protocol !== "https:") return false;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".exp.direct") ||
+      hostname.endsWith(".exp.host")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function corsOriginSetting(env: Env): boolean | string[] | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void) {
   if (shouldAllowAllCorsOrigins(env)) return true;
   const origins = corsOrigins(env);
-  return origins.length > 0 ? origins : true;
+  if (origins.length === 0) return true;
+
+  const allowlist = new Set(origins);
+  const allowExpoDev = env.NODE_ENV !== "production";
+
+  return (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (allowlist.has(origin) || (allowExpoDev && isExpoDevWebOrigin(origin))) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS blocked origin: ${origin}`));
+  };
 }
 
 // For tests — reset cached env so a fresh process.env can be reloaded.

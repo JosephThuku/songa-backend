@@ -30,7 +30,13 @@ export function buildApp({ env }: BuildAppOptions): Express {
       origin: corsOriginSetting(env),
       credentials: true,
       methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "x-dev-show-otp"],
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "x-dev-show-otp",
+        "ngrok-skip-browser-warning",
+        "Idempotency-Key",
+      ],
     }),
   );
   app.use(express.json({ limit: "100kb" }));
