@@ -24,6 +24,7 @@ import {
   requestRide,
   startRide,
 } from "../services/ride.service.js";
+import { getRideNavigation } from "../services/ride-navigation.service.js";
 
 const router: Router = Router();
 
@@ -132,6 +133,16 @@ router.get(
   asyncHandler(async (req, res) => {
     const user = userOrThrow(req);
     res.status(200).json({ ride: await getRideById(req.params.rideId, user) });
+  }),
+);
+
+router.get(
+  "/:rideId/navigation",
+  asyncHandler(async (req, res) => {
+    const user = userOrThrow(req);
+    res.status(200).json({
+      navigation: await getRideNavigation(req.params.rideId, user.id, user.role),
+    });
   }),
 );
 

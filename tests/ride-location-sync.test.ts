@@ -24,14 +24,28 @@ async function createPassenger() {
   });
 }
 
+async function createDriver() {
+  return prisma.user.create({
+    data: {
+      phone: `+254711${Date.now()}`,
+      role: "driver",
+      name: "Test Driver",
+      phoneVerified: true,
+    },
+  });
+}
+
 async function createRideInPhase(
   passengerId: string,
-  phase: "driver_accepted" | "driver_en_route" | "driver_arriving",
+  phase: "driver_accepted" | "driver_en_route" | "driver_arriving" | "trip_in_progress",
 ) {
+  const driver =
+    phase === "trip_in_progress" ? await createDriver() : null;
   return prisma.ride.create({
     data: {
       id: `ride_${cuid()}`,
       passengerId,
+      driverId: driver?.id,
       phase,
       bookingMode: BookingMode.pay_on_arrival,
       prepaid: false,
@@ -115,6 +129,20 @@ describe("syncActiveRideFromDriverLocation — phaseFromPickupDistance", () => {
     expect(updated.etaMinutes).toBe(1);
     // Confirm the update persisted (driverLocation should be stored)
     expect(updated.driverLocation).not.toBeNull();
+  });
+
+  it("updates ETA toward drop-off during trip_in_progress", async () => {
+    const passenger = await createPassenger();
+    const ride = await createRideInPhase(passenger.id, "trip_in_progress");
+    await syncActiveRideFromDriverLocation(ride.id, {
+      lat: -1.3,
+      lng: 36.85,
+      updatedAt: new Date().toISOString(),
+    });
+    const updated = await prisma.ride.findUniqueOrThrow({ where: { id: ride.id } });
+    expect(updated.phase).toBe("trip_in_progress");
+    expect(updated.etaMinutes).toBeGreaterThanOrEqual(1);
+    expect(updated.distanceKm).toBeGreaterThan(0);
   });
 
   it("no-ops for a terminal ride (trip_ended)", async () => {

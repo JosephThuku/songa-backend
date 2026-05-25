@@ -29,6 +29,9 @@ const envSchema = z.object({
   WASILIANA_API_KEY: z.string().optional(),
   WASILIANA_SENDER_ID: z.string().optional(),
   WASILIANA_BASE_URL: z.string().url().optional(),
+  /** Google Maps Platform — Directions (traffic-aware routes). Falls back to GOOGLE_PLACES_API_KEY. */
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
