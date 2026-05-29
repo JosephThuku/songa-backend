@@ -43,10 +43,11 @@ describe("bookings and prepaid rides", () => {
       .set("Authorization", `Bearer ${passenger.token}`)
       .send({ provider: "flutterwave" });
     expect(payment.status).toBe(200);
+    const devAutoPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true";
     expect(payment.body.payment).toMatchObject({
       provider: "flutterwave",
-      status: "pending",
-      checkoutUrl: expect.stringContaining(created.body.booking.id),
+      status: devAutoPay ? "succeeded" : "pending",
+      ...(devAutoPay ? { checkoutUrl: null } : { checkoutUrl: expect.stringContaining(created.body.booking.id) }),
     });
 
     const fetched = await request(app)
@@ -72,6 +73,60 @@ describe("bookings and prepaid rides", () => {
       .set("Authorization", `Bearer ${other.token}`);
     expect(hidden.status).toBe(404);
     expect(hidden.body.error.code).toBe("BOOKING_NOT_FOUND");
+  });
+
+  it("blocks a new ride request when passenger has an outstanding unpaid booking", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+
+    // First, create an unpaid booking (status: pending_payment).
+    await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+
+    // Now attempt a NEW, unrelated ride request (cash on arrival, no bookingId).
+    const blocked = await request(app)
+      .post("/api/rides/request")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({
+        pickup: { label: "Westlands", lat: -1.2674, lng: 36.807 },
+        dropoff: { label: "Kilimani", lat: -1.2921, lng: 36.7856 },
+        prepaid: false,
+        paymentMethod: null,
+      });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe("UNPAID_TRIP_PENDING");
+    expect(blocked.body.error.message).toMatch(/pending trip/i);
+  });
+
+  it("allows a new ride request once previous bookings are no longer pending payment", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+
+    const previous = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+
+    // Resolve the prior booking so the passenger can plan another trip.
+    await prisma.booking.update({
+      where: { id: previous.body.booking.id },
+      data: { status: "paid" },
+    });
+
+    const allowed = await request(app)
+      .post("/api/rides/request")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({
+        pickup: { label: "Westlands", lat: -1.2674, lng: 36.807 },
+        dropoff: { label: "Kilimani", lat: -1.2921, lng: 36.7856 },
+        prepaid: false,
+        paymentMethod: null,
+      });
+    expect(allowed.status).toBe(201);
   });
 
   it("requires a paid booking before prepaid ride request succeeds", async () => {

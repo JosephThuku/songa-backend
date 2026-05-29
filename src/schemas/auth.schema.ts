@@ -77,6 +77,7 @@ export const ConfirmRegistrationResponseSchema = registry.register(
   z.object({
     ok: z.literal(true),
     user: UserSchema,
+    sessionToken: z.string(),
   }),
 );
 
@@ -208,7 +209,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Account created (no session — sign in next).",
+      description: "Account created with a 30-day session (same as login).",
       content: { "application/json": { schema: ConfirmRegistrationResponseSchema } },
     },
     401: { description: "Invalid OTP.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },

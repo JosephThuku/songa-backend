@@ -144,7 +144,7 @@ describe("Ride dispatch — vehicle type and declined-by filtering", () => {
       .set("Authorization", `Bearer ${vanDriver.token}`)
       .send();
     expect(vanAccept.status).toBe(200);
-    expect(vanAccept.body.ride.phase).toBe("driver_accepted");
+    expect(vanAccept.body.ride.phase).toBe("driver_en_route");
     expect(vanAccept.body.ride.driverId).toBe(vanDriver.userId);
   });
 
@@ -239,6 +239,6 @@ describe("Ride dispatch — vehicle type and declined-by filtering", () => {
       .set("Authorization", `Bearer ${carDriver.token}`)
       .send();
     expect(accept.status).toBe(200);
-    expect(accept.body.ride.phase).toBe("driver_accepted");
+    expect(accept.body.ride.phase).toBe("driver_en_route");
   });
 });

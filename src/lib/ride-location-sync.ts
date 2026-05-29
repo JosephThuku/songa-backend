@@ -13,9 +13,10 @@ const PICKUP_TRACKING_PHASES: RidePhase[] = [
 
 const TRIP_TRACKING_PHASES: RidePhase[] = [RidePhase.trip_in_progress];
 
-const LOCATION_UPDATE_THROTTLE_MS = 5000;
+// Emit at most ~once per ride every 3s for live pin/ETA tracking; phase
+// transitions bypass the throttle so the passenger/driver always see them.
+const LOCATION_UPDATE_THROTTLE_MS = 3000;
 const lastRideUpdatePublishedAt = new Map<string, number>();
-const lastPublishedDistanceKm = new Map<string, number>();
 
 function parseLatLng(value: unknown): { lat: number; lng: number } | null {
   const object = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
@@ -38,7 +39,7 @@ export async function syncActiveRideFromDriverLocation(
   location: Prisma.InputJsonObject,
 ): Promise<void> {
   const ride = await prisma.ride.findUnique({ where: { id: rideId } });
-  if (!ride || !ride.driverId) return;
+  if (!ride) return;
 
   const driverPoint = parseLatLng(location);
   if (!driverPoint) return;
@@ -89,19 +90,14 @@ export async function syncActiveRideFromDriverLocation(
     },
   });
 
+  // Live pin / live ETA: every active-ride GPS ping should reach both ends.
+  // Emit on every sync, throttled to ~3s per ride, but always emit immediately
+  // on a phase transition (driver_accepted → en_route → arriving → arrived).
   const phaseChanged = updated.phase !== ride.phase;
-  const etaChanged = updated.etaMinutes !== ride.etaMinutes;
-  const prevDistance = lastPublishedDistanceKm.get(rideId);
-  const distanceChanged =
-    prevDistance === undefined || Math.abs((prevDistance ?? 0) - (updated.distanceKm ?? 0)) >= 0.2;
-
-  if (!phaseChanged && !etaChanged && !distanceChanged) return;
-
   const now = Date.now();
   const lastPublished = lastRideUpdatePublishedAt.get(rideId) ?? 0;
   if (phaseChanged || now - lastPublished >= LOCATION_UPDATE_THROTTLE_MS) {
     publishRideChanged({ rideId: updated.id, phase: updated.phase });
     lastRideUpdatePublishedAt.set(rideId, now);
-    lastPublishedDistanceKm.set(rideId, updated.distanceKm ?? 0);
   }
 }

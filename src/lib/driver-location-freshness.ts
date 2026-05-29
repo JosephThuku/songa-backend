@@ -7,7 +7,8 @@ export function driverLocationFreshWindowMs(): number {
   if (process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
     return 24 * 60 * 60 * 1000;
   }
-  return 60_000;
+  // Allow brief gaps between mobile GPS posts (foreground/background, tunnel, etc.).
+  return 120_000;
 }
 
 export function driverLocationFreshSince(): Date {

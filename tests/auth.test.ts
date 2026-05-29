@@ -52,7 +52,7 @@ describe("POST /api/auth/register/confirm", () => {
     expect(res.body.error.code).toBe("INVALID_OTP");
   });
 
-  it("creates user without session token", async () => {
+  it("creates user and issues a 30-day session token", async () => {
     const app = buildTestApp();
     const reg = await request(app)
       .post("/api/auth/register")
@@ -70,7 +70,8 @@ describe("POST /api/auth/register/confirm", () => {
     expect(confirm.body.ok).toBe(true);
     expect(confirm.body.user.phone).toBe(VALID_PHONE);
     expect(confirm.body.user.driverProfile?.onboardingStatus).toBe("approved");
-    expect(confirm.body.sessionToken).toBeUndefined();
+    expect(typeof confirm.body.sessionToken).toBe("string");
+    expect(confirm.body.sessionToken.length).toBeGreaterThan(20);
   });
 });
 

@@ -15,7 +15,7 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { haversineDistanceKm, estimatePickupEtaMinutes } from "../lib/geo.js";
 import { publishRideChanged, publishRideOffer } from "../lib/ride-events.js";
-import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
+import { computeFare } from "../lib/ride-pricing.js";
 import { getRideProduct } from "../lib/ride-products.js";
 import { toRideDto, type PlaceDto, type RideDto } from "../lib/responses.js";
 import { withDispatchLock } from "../lib/dispatch-lock.js";
@@ -155,6 +155,26 @@ export async function requestRide(input: RequestRideInput, viewer: Express.UserC
   }
   if (input.prepaid && input.bookingId) {
     await requirePaidBooking(input.bookingId, input.passengerId);
+  }
+
+  // Bug 5.1 — block a new trip plan when the passenger still has an outstanding
+  // unpaid booking from a previous attempt. Exclude the booking that this very
+  // request is paying through (prepaid + bookingId) so that flow still works.
+  const unpaidBooking = await prisma.booking.findFirst({
+    where: {
+      passengerId: input.passengerId,
+      status: "pending_payment",
+      ...(input.bookingId ? { id: { not: input.bookingId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (unpaidBooking) {
+    throw new AppError(
+      "UNPAID_TRIP_PENDING",
+      409,
+      "Pay for your pending trip before requesting a new one.",
+      { bookingId: unpaidBooking.id },
+    );
   }
 
   const ride = await prisma.$transaction(async (tx) => {
@@ -378,13 +398,19 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
       driverPoint && pickupPoint ? haversineDistanceKm(pickupPoint, driverPoint) : null;
     const pickupEta = pickupDistanceKm !== null ? estimatePickupEtaMinutes(pickupDistanceKm) : 8;
 
+    const initialDriverLocation =
+      profile.location && typeof profile.location === "object"
+        ? (profile.location as object)
+        : undefined;
+
     const write = await tx.ride.updateMany({
       where: { id: ride.id, phase: RidePhase.finding_driver, driverId: null },
       data: {
         driverId,
-        phase: RidePhase.driver_accepted,
+        phase: RidePhase.driver_en_route,
         etaMinutes: pickupEta,
         ...(pickupDistanceKm !== null ? { distanceKm: Math.round(pickupDistanceKm * 10) / 10 } : {}),
+        ...(initialDriverLocation ? { driverLocation: initialDriverLocation } : {}),
       },
     });
     if (write.count !== 1) throw new AppError("OFFER_EXPIRED", 409, "Ride offer is no longer available.");
@@ -394,7 +420,7 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
         actor: RideEventActor.driver,
         actorId: driverId,
         action: "driver.accepted",
-        phase: RidePhase.driver_accepted,
+        phase: RidePhase.driver_en_route,
       },
     });
     return tx.ride.findUniqueOrThrow({ where: { id: ride.id }, include: rideInclude });
@@ -522,10 +548,12 @@ export async function rateDriverForRide(
       _avg: { passengerDriverRating: true },
     });
     const nextRating = avg._avg.passengerDriverRating ?? stars;
-    await tx.user.update({
-      where: { id: ride.driverId },
-      data: { rating: Math.round(nextRating * 10) / 10 },
-    });
+    if (ride.driverId) {
+      await tx.user.update({
+        where: { id: ride.driverId },
+        data: { rating: Math.round(nextRating * 10) / 10 },
+      });
+    }
 
     return tx.ride.findUniqueOrThrow({ where: { id: rideId }, include: rideInclude });
   }, serializable);
@@ -559,6 +587,9 @@ async function transitionDriverRide(
     if (write.count !== 1) throw new AppError("INVALID_PHASE", 409, "Invalid ride phase.");
     const currentRide = await tx.ride.findUniqueOrThrow({ where: { id: rideId } });
     if (phase === RidePhase.trip_ended) {
+      // Bug 4.1 — driver receives 100% of the passenger-paid fare.
+      // Booking.platformFee is retained on the Booking row for accounting only;
+      // it is no longer deducted from the wallet credit.
       await tx.walletTransaction.create({
         data: {
           id: `tx_${cuid()}`,
@@ -566,7 +597,7 @@ async function transitionDriverRide(
           rideId,
           type: "credit",
           label: tripCreditLabel(currentRide.pickup, currentRide.dropoff),
-          amount: Math.max(0, currentRide.price - PLATFORM_FEE_KES),
+          amount: currentRide.price,
           status: "posted",
         },
       });

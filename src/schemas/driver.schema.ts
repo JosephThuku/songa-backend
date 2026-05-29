@@ -59,7 +59,6 @@ registry.registerPath({
     204: { description: "Location accepted." },
     400: { description: "Invalid input.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
     403: { description: "Driver not approved.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
-    409: { description: "Driver offline.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
   },
 });
 
@@ -67,7 +66,7 @@ export const RegisterVehicleRequestSchema = registry.register(
   "RegisterVehicleRequest",
   z
     .object({
-      type: z.enum(["Car", "Van", "Minibus", "Bike", "Tuktuk"]),
+      type: z.enum(["Car", "Van", "Minibus"]),
       make: z.string().trim().min(1),
       model: z.string().trim().min(1),
       registration: z.string().trim().min(1),

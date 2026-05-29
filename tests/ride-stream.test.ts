@@ -131,10 +131,12 @@ describe("GET /api/rides/active/stream", () => {
       .set("Authorization", `Bearer ${driver.token}`)
       .send()
       .expect(200);
+    // Accepting a ride moves it straight to driver_en_route (the driver is
+    // immediately dispatched toward pickup), so that is the phase broadcast.
     const accepted = await nextSseJson<{ type: string; ride: { id: string; phase: string } }>();
     expect(accepted).toMatchObject({
       type: "ride.updated",
-      ride: { id: rideId, phase: "driver_accepted" },
+      ride: { id: rideId, phase: "driver_en_route" },
     });
 
     await request(app)

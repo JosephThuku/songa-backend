@@ -219,3 +219,13 @@ These call sites still drive UX from `mock-songa.json` instead of the live backe
 - **Backend gap**: `RideDto.driverLocation` is never populated (driver location lives on `DriverProfile`, not `Ride`). Hydrate it in `toRideDto` so the live driver dot animates on the passenger map.
 
 Otherwise the rides happy-path (search -> request -> socket updates -> accept -> arrived -> start -> complete -> cancel) is correctly wired between the two repos.
+
+### 7. Live driver pin + live ETA (realtime) — Bug 1.1 / 1.2 / 1.3
+
+- **`ride.updated` now fires on every driver GPS ping during an active ride** (`driver_en_route`, `driver_arriving`, `driver_arrived`, `trip_in_progress`), throttled to at most one emit per ~3s per ride. **Phase transitions always emit immediately**, bypassing the throttle. The event is broadcast to **both** `user:<passengerId>` and `user:<driverId>` rooms (and the SSE `/api/rides/active/stream`).
+- **No payload shape change.** `ride.updated.ride` is the same `RideDto`. The live fields the map needs are already present and now stay fresh:
+  - `driverLocation`: `{ lat, lng, heading?, speedKmh?, updatedAt }` (resolved from the ride row / driver profile in `toRideDto`).
+  - `etaMinutes`, `distanceKm`, `phase`.
+  - Mobile already consumes these (`DriverLocationDto` in `lib/ride-types.ts`, `rideDtoToActiveTrip` in `lib/ride-mapper.ts`) — **no mobile change required** to receive the live pin/ETA.
+- **`POST /api/drivers/me/location`** accepts the exact body the driver app sends (`lat`, `lng`, `heading?`, `speedKmh?`, `accuracyM?`, `recordedAt?`), persists `location` + `locationUpdatedAt` on every call with no clamping, and is allowed while offline.
+- **Reconnect contract (unchanged):** the server does **not** replay missed events on socket reconnect. On `connect` the client must re-fetch `GET /api/rides/active` to resync (already done in `hooks/use-ride-sync.ts` via `onConnect -> resyncFromServer`).

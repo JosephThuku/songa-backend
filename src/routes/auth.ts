@@ -96,12 +96,25 @@ router.post(
   }),
   asyncHandler(async (req, res) => {
     const data = parseBody(ConfirmRegistrationRequestSchema, req.body);
+    const ua = req.header("user-agent") ?? null;
     const result = await confirmRegistration({
       phone: data.phone,
       role: data.role,
       code: data.code,
       ip: requestIp(req),
+      userAgent: ua,
     });
+
+    if (isWebClient(ua)) {
+      res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: SESSION_TTL_SECONDS * 1000,
+        path: "/",
+      });
+    }
+
     res.status(200).json(result);
   }),
 );

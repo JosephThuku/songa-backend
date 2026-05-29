@@ -21,7 +21,13 @@ export const CreateBookingRequestSchema = registry.register(
 
 export const PayBookingRequestSchema = registry.register(
   "PayBookingRequest",
-  z.object({ provider: z.enum(["flutterwave", "mpesa"]).default("flutterwave") }).strict(),
+  z
+    .object({
+      provider: z.enum(["flutterwave", "mpesa"]).default("flutterwave"),
+      /** Required for M-Pesa STK when not using ALLOW_DEV_PAYMENT_CONFIRM. */
+      phone: z.string().trim().min(9).max(20).optional(),
+    })
+    .strict(),
 );
 
 registry.registerPath({

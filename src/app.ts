@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express } from "express";
 import helmet from "helmet";
+import path from "node:path";
 import { pinoHttp } from "pino-http";
 import { corsOriginSetting, type Env } from "./config/env.js";
 import { errorMiddleware, notFoundMiddleware } from "./lib/errors.js";
@@ -39,8 +40,9 @@ export function buildApp({ env }: BuildAppOptions): Express {
       ],
     }),
   );
-  app.use(express.json({ limit: "100kb" }));
+  app.use(express.json({ limit: "3mb" }));
   app.use(cookieParser());
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
   // Skip HTTP logging during tests to keep output clean.
   if (env.NODE_ENV !== "test") {

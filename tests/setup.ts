@@ -15,8 +15,12 @@ execSync("npx prisma db push --skip-generate", { stdio: "pipe", env: process.env
 
 const { prisma } = await import("../src/lib/prisma.js");
 const { resetRedisForTest, _setRedis } = await import("../src/lib/redis.js");
+const { clearAllOfferTimeouts } = await import("../src/lib/offer-timeout.js");
 
 async function resetDatabase(): Promise<void> {
+  // Stop any pending 15s offer-redispatch timers from a prior test firing
+  // (and writing) into the next test's freshly-reset database.
+  clearAllOfferTimeouts();
   await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS=0");
   await prisma.notification.deleteMany();
   await prisma.device.deleteMany();

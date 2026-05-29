@@ -2,7 +2,7 @@ import { Prisma, RidePhase } from "@prisma/client";
 import { driverLocationFreshSince } from "../lib/driver-location-freshness.js";
 import { AppError } from "../lib/errors.js";
 import { estimatePickupEtaMinutes, haversineDistanceKm, type LatLng } from "../lib/geo.js";
-import { findDriverIdsNear, indexDriverLocation, removeDriverFromGeoIndex } from "../lib/driver-geo.js";
+import { indexDriverLocation, removeDriverFromGeoIndex } from "../lib/driver-geo.js";
 import { prisma } from "../lib/prisma.js";
 import { publishRideChanged } from "../lib/ride-events.js";
 import { syncActiveRideFromDriverLocation } from "../lib/ride-location-sync.js";
@@ -144,14 +144,10 @@ export async function findDriversNearPickup(input: {
   limit?: number;
 }): Promise<DriverNearPickup[]> {
   const radiusKm = input.radiusKm ?? 25;
-  const geoDriverIds = await findDriverIdsNear(input.pickup.lng, input.pickup.lat, radiusKm);
-  const useGeoFilter = geoDriverIds.length > 0;
-  const geoSet = new Set(geoDriverIds);
   const profiles = await loadEligibleDriverProfiles(input.vehicleType);
   const candidates: DriverNearPickup[] = [];
 
   for (const profile of profiles) {
-    if (useGeoFilter && !geoSet.has(profile.userId)) continue;
     const location = parseLocation(profile.location);
     if (!location || !profile.locationUpdatedAt) continue;
 
@@ -196,7 +192,6 @@ export async function updateDriverLocation(driverId: string, input: DriverLocati
   if (!profile || profile.onboardingStatus !== "approved") {
     throw new AppError("DRIVER_NOT_APPROVED", 403, "Driver is not approved.");
   }
-  if (!profile.isOnline) throw new AppError("DRIVER_OFFLINE", 409, "Driver must be online to post location.");
 
   const updatedAt = input.recordedAt ? new Date(input.recordedAt) : new Date();
   if (Number.isNaN(updatedAt.getTime())) throw new AppError("INVALID_INPUT", 400, "recordedAt is invalid.");
@@ -210,7 +205,9 @@ export async function updateDriverLocation(driverId: string, input: DriverLocati
   const activeRide = await prisma.ride.findFirst({
     where: { driverId, phase: { notIn: ["trip_ended", "cancelled"] } },
   });
-  await indexDriverLocation(driverId, input.lng, input.lat);
+  if (profile.isOnline) {
+    await indexDriverLocation(driverId, input.lng, input.lat);
+  }
 
   if (activeRide) {
     await syncActiveRideFromDriverLocation(activeRide.id, location);

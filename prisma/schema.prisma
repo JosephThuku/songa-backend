@@ -55,6 +55,12 @@ enum PaymentStatus {
   failed
 }
 
+enum SavedPlaceKind {
+  home
+  work
+  other
+}
+
 model User {
   id            String    @id @default(cuid())
   phone         String
@@ -77,6 +83,8 @@ model User {
   walletTransactions WalletTransaction[]
   notifications      Notification[]
   devices            Device[]
+  savedPlaces        SavedPlace[]
+  paymentMethods     PaymentMethodPreference[]
 
   @@unique([phone, role]) // one human can be both passenger AND driver on same #
   @@unique([email, role]) // null emails allowed; uniqueness only enforced when set
@@ -186,15 +194,18 @@ model Booking {
 }
 
 model Payment {
-  id          String        @id
-  bookingId   String
-  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  provider    String
-  status      PaymentStatus @default(pending)
-  checkoutUrl String?
-  reference   String        @unique
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id                      String        @id
+  bookingId               String
+  booking                 Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  provider                String
+  status                  PaymentStatus @default(pending)
+  checkoutUrl             String?
+  reference               String        @unique
+  mpesaCheckoutRequestId  String?       @unique
+  transactionRef          String?       @unique
+  gatewayResponse         Json?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
 
   @@index([bookingId, createdAt])
 }
@@ -267,4 +278,35 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model SavedPlace {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  kind      SavedPlaceKind @default(other)
+  placeId   String?
+  lat       Float
+  lng       Float
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model PaymentMethodPreference {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  isDefault  Boolean  @default(false)
+  mpesaPhone String?
+  cardLast4  String?
+  cardBrand  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
 }

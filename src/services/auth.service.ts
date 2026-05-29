@@ -46,11 +46,13 @@ export interface ConfirmRegistrationInput {
   role: Role;
   code: string;
   ip?: string | null;
+  userAgent?: string | null;
 }
 
 export interface ConfirmRegistrationResult {
   ok: true;
   user: UserDto;
+  sessionToken: string;
 }
 
 export interface LoginInput {
@@ -199,7 +201,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
 }
 
 /**
- * Confirm registration OTP and create the user. Does not issue a session — user signs in next.
+ * Confirm registration OTP, create the user, and start a 30-day session.
  */
 export async function confirmRegistration(
   input: ConfirmRegistrationInput,
@@ -226,6 +228,7 @@ export async function confirmRegistration(
   }
 
   let driverProfile: DriverProfile | null = null;
+  let sessionToken = "";
   const user = await prisma.$transaction(async (tx) => {
     const prior = await tx.user.findUnique({
       where: { phone_role: { phone, role: toPrismaRole(role) } },
@@ -268,6 +271,19 @@ export async function confirmRegistration(
         }));
     }
 
+    const withProfile =
+      role === "driver"
+        ? { ...created, driverProfile: driverProfile! }
+        : { ...created, driverProfile: null as DriverProfile | null };
+
+    sessionToken = await createSession(
+      tx,
+      withProfile,
+      role,
+      input.userAgent,
+      input.ip,
+    );
+
     return created;
   });
 
@@ -275,7 +291,7 @@ export async function confirmRegistration(
     .create({ data: { phone, ip: input.ip ?? null, success: true } })
     .catch(() => {});
 
-  return { ok: true, user: toUserDto(user, driverProfile) };
+  return { ok: true, user: toUserDto(user, driverProfile), sessionToken };
 }
 
 /**
@@ -299,11 +315,11 @@ async function loginWithTransaction(input: LoginInput): Promise<LoginResult> {
     const user = isEmailIdentifier(identifier)
       ? await tx.user.findFirst({
           where: { email: identifier, role: toPrismaRole(role) },
-          include: { driverProfile: true },
+          include: { driverProfile: { include: { vehicle: true } } },
         })
       : await tx.user.findUnique({
           where: { phone_role: { phone: identifier, role: toPrismaRole(role) } },
-          include: { driverProfile: true },
+          include: { driverProfile: { include: { vehicle: true } } },
         });
 
     if (!user?.phoneVerified || !user.passwordHash) {
@@ -354,7 +370,7 @@ export async function logout(sessionId: string): Promise<void> {
 export async function getMe(userId: string): Promise<MeResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { driverProfile: true },
+    include: { driverProfile: { include: { vehicle: true } } },
   });
   if (!user) {
     throw new AppError("UNAUTHORIZED", 401, "User not found.");

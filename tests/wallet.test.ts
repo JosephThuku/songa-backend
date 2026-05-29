@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
 import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
@@ -39,6 +39,21 @@ async function completeRide(app: Express, passengerToken: string, driverToken: s
 }
 
 describe("driver wallet", () => {
+  const savedInitiator = process.env.MPESA_INITIATOR_NAME;
+  const savedInitiatorPw = process.env.MPESA_INITIATOR_PASSWORD;
+
+  beforeEach(() => {
+    delete process.env.MPESA_INITIATOR_NAME;
+    delete process.env.MPESA_INITIATOR_PASSWORD;
+  });
+
+  afterEach(() => {
+    if (savedInitiator) process.env.MPESA_INITIATOR_NAME = savedInitiator;
+    else delete process.env.MPESA_INITIATOR_NAME;
+    if (savedInitiatorPw) process.env.MPESA_INITIATOR_PASSWORD = savedInitiatorPw;
+    else delete process.env.MPESA_INITIATOR_PASSWORD;
+  });
+
   it("credits wallet on trip completion and returns wallet transactions", async () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
@@ -46,10 +61,12 @@ describe("driver wallet", () => {
     const { rideId, price } = await completeRide(app, passenger.token, driver.token);
 
     const tx = await prisma.walletTransaction.findFirst({ where: { rideId } });
+    // Bug 4.1 — driver wallet must be credited the FULL passenger-paid fare,
+    // with no platform-fee deduction (Booking.platformFee is record-only now).
     expect(tx).toMatchObject({
       driverId: driver.userId,
       type: "credit",
-      amount: Math.max(0, price - 50),
+      amount: price,
       status: "posted",
     });
 
@@ -57,12 +74,12 @@ describe("driver wallet", () => {
       .get("/api/drivers/me/wallet")
       .set("Authorization", `Bearer ${driver.token}`);
     expect(wallet.status).toBe(200);
-    expect(wallet.body.balance).toBe(Math.max(0, price - 50));
+    expect(wallet.body.balance).toBe(price);
     expect(wallet.body.pendingPayout).toBe(0);
     expect(wallet.body.transactions[0]).toMatchObject({
       id: tx?.id,
       type: "credit",
-      amount: Math.max(0, price - 50),
+      amount: price,
     });
   });
 
@@ -71,7 +88,7 @@ describe("driver wallet", () => {
     const passenger = await login(app, PASSENGER_PHONE, "passenger");
     const driver = await login(app, DRIVER_PHONE, "driver");
     const { price } = await completeRide(app, passenger.token, driver.token);
-    const balance = Math.max(0, price - 50);
+    const balance = price;
 
     const tooMuch = await request(app)
       .post("/api/drivers/me/wallet/cashout")

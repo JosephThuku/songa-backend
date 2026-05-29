@@ -90,7 +90,7 @@ const rideBody = {
 };
 
 describe("driver location, nearby, and offers", () => {
-  it("requires online status before accepting driver location", async () => {
+  it("accepts driver location even while offline", async () => {
     const app = buildTestApp();
     const driver = await login(app, DRIVER_PHONE, "driver");
 
@@ -98,8 +98,7 @@ describe("driver location, nearby, and offers", () => {
       .post("/api/drivers/me/location")
       .set("Authorization", `Bearer ${driver.token}`)
       .send(locationBody);
-    expect(offline.status).toBe(409);
-    expect(offline.body.error.code).toBe("DRIVER_OFFLINE");
+    expect(offline.status).toBe(204);
 
     await setupDriverForDispatch(app, driver.token, {
       lat: locationBody.lat,

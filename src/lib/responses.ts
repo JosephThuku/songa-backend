@@ -7,6 +7,14 @@ export interface DriverProfileDto {
   acceptanceRate: number;
   vehicleId: string | null;
   onboardingStatus: "pending" | "approved" | "rejected";
+  lastLocation?: {
+    lat: number;
+    lng: number;
+    heading?: number;
+    speedKmh?: number;
+    updatedAt: string;
+  } | null;
+  vehicle?: VehicleEmbedDto | null;
 }
 
 export interface UserDto {
@@ -21,16 +29,41 @@ export interface UserDto {
   driverProfile?: DriverProfileDto;
 }
 
-export function toDriverProfileDto(profile: DriverProfile): DriverProfileDto {
+export function toDriverProfileDto(
+  profile: DriverProfile & { vehicle?: Vehicle | null },
+): DriverProfileDto {
+  const location =
+    typeof profile.location === "object" && profile.location !== null
+      ? (profile.location as Record<string, unknown>)
+      : null;
+  const lastLocation =
+    location && typeof location.lat === "number" && typeof location.lng === "number"
+      ? {
+          lat: location.lat,
+          lng: location.lng,
+          ...(typeof location.heading === "number" ? { heading: location.heading } : {}),
+          ...(typeof location.speedKmh === "number" ? { speedKmh: location.speedKmh } : {}),
+          updatedAt:
+            typeof location.updatedAt === "string"
+              ? location.updatedAt
+              : profile.locationUpdatedAt?.toISOString() ?? profile.updatedAt.toISOString(),
+        }
+      : null;
+
   return {
     isOnline: profile.isOnline,
     acceptanceRate: profile.acceptanceRate,
     vehicleId: profile.vehicleId ?? null,
     onboardingStatus: profile.onboardingStatus,
+    lastLocation,
+    vehicle: toVehicleEmbedDto(profile.vehicle ?? null),
   };
 }
 
-export function toUserDto(user: User, driverProfile?: DriverProfile | null): UserDto {
+export function toUserDto(
+  user: User,
+  driverProfile?: (DriverProfile & { vehicle?: Vehicle | null }) | null,
+): UserDto {
   const dto: UserDto = {
     id: user.id,
     role: user.role,
@@ -176,6 +209,30 @@ export function toPassengerEmbedDto(passenger: User, includePhone: boolean): Pas
   };
 }
 
+function resolveDriverLocationForDto(ride: RideDtoInput): unknown {
+  const onRide =
+    typeof ride.driverLocation === "object" && ride.driverLocation !== null
+      ? (ride.driverLocation as Record<string, unknown>)
+      : null;
+  if (onRide && typeof onRide.lat === "number" && typeof onRide.lng === "number") {
+    return ride.driverLocation;
+  }
+
+  if (!ride.driverId) return ride.driverLocation ?? null;
+
+  const profileLoc = ride.driver?.driverProfile?.location;
+  if (
+    typeof profileLoc === "object" &&
+    profileLoc !== null &&
+    typeof (profileLoc as Record<string, unknown>).lat === "number" &&
+    typeof (profileLoc as Record<string, unknown>).lng === "number"
+  ) {
+    return profileLoc;
+  }
+
+  return ride.driverLocation ?? null;
+}
+
 export function toRideDto(ride: RideDtoInput, viewer?: { id: string; role: "passenger" | "driver" }): RideDto {
   const driverProfile = ride.driver?.driverProfile ?? null;
   const vehicle = driverProfile?.vehicle ?? null;
@@ -206,7 +263,7 @@ export function toRideDto(ride: RideDtoInput, viewer?: { id: string; role: "pass
     seats: seatsToArray(ride.seats),
     pickup: toPlaceDto(ride.pickup),
     dropoff: toPlaceDto(ride.dropoff),
-    driverLocation: ride.driverLocation ?? null,
+    driverLocation: resolveDriverLocationForDto(ride),
     cancelReason: ride.cancelReason ?? null,
     cancelledByRole: ride.cancelledByRole ?? null,
     passengerDriverRating: ride.passengerDriverRating ?? null,

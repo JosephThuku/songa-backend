@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { driverLocationFreshWindowMs } from "../src/lib/driver-location-freshness.js";
 
 describe("driverLocationFreshWindowMs", () => {
-  it("uses 60s in test environment", () => {
-    expect(driverLocationFreshWindowMs()).toBe(60_000);
+  it("uses 120s in test environment (same as production)", () => {
+    expect(driverLocationFreshWindowMs()).toBe(120_000);
   });
 
   it("uses 24h when NODE_ENV is unset (local dev)", () => {

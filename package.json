@@ -26,9 +26,9 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.4",
+    "@prisma/client": "^5.22.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "bullmq": "^5.34.5",
-    "@prisma/client": "^5.22.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "cuid": "^3.0.0",
@@ -56,7 +56,7 @@
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.5"
+    "vitest": "^4.1.7"
   },
   "engines": {
     "node": ">=20.0.0"

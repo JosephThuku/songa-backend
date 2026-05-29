@@ -110,7 +110,7 @@ describe("Stage 2 ride lifecycle", () => {
       .set("Authorization", `Bearer ${driver.token}`)
       .send();
     expect(accepted.status).toBe(200);
-    expect(accepted.body.ride.phase).toBe("driver_accepted");
+    expect(accepted.body.ride.phase).toBe("driver_en_route");
     expect(accepted.body.ride.driverId).toBe(driver.userId);
 
     const arrived = await request(app)

@@ -32,6 +32,14 @@ export function scheduleOfferTimeout(rideId: string): void {
   inProcessTimers.set(rideId, timer);
 }
 
+/** Clear every pending in-process offer timer (test isolation: stop leaked redispatch firing across tests). */
+export function clearAllOfferTimeouts(): void {
+  for (const timer of inProcessTimers.values()) {
+    clearTimeout(timer);
+  }
+  inProcessTimers.clear();
+}
+
 export function cancelOfferTimeout(rideId: string): void {
   const timer = inProcessTimers.get(rideId);
   if (timer) {
