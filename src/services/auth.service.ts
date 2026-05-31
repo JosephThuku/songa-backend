@@ -72,18 +72,57 @@ export interface MeResult {
   user: UserDto;
 }
 
+export interface ForgotPasswordInput {
+  phone: string;
+  role: Role;
+}
+
+export interface ForgotPasswordResult {
+  ok: true;
+  expiresInSeconds: number;
+  devCode?: string;
+  phone: string;
+}
+
+export interface ResetPasswordInput {
+  phone: string;
+  role: Role;
+  code: string;
+  password: string;
+  userAgent?: string | null;
+  ip?: string | null;
+}
+
+export interface ResetPasswordResult {
+  ok: true;
+  user: UserDto;
+  sessionToken: string;
+}
+
 function toPrismaRole(role: Role): UserRole {
   return role === "passenger" ? UserRole.passenger : UserRole.driver;
 }
 
-async function dispatchOtpSms(phone: string, code: string): Promise<void> {
+async function issueOtp(
+  role: Role,
+  phone: string,
+  purpose: "register" | "password_reset" = "register",
+): Promise<{ code: string }> {
+  const code = generateOtpCode();
+  const redis = getRedis();
+  await storeOtp(redis, purpose, role, phone, code);
+
+  if (process.env.NODE_ENV !== "production") {
+    logger.info({ phone, role, code, purpose }, `Dev OTP issued (${purpose})`);
+  }
+
+  const body =
+    purpose === "password_reset"
+      ? `Your Songa password reset code is ${code}. It expires in 5 minutes. Do not share it.`
+      : `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`;
   const sms = getSmsProvider();
   const result = await sms
-    .send({
-      to: phone,
-      body: `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`,
-      isOtp: true,
-    })
+    .send({ to: phone, body, isOtp: true })
     .catch((err: unknown) => {
       logger.error({ err, phone }, "SMS send threw");
       return { ok: false, provider: sms.name, error: String(err) } as const;
@@ -91,18 +130,7 @@ async function dispatchOtpSms(phone: string, code: string): Promise<void> {
   if (!result.ok) {
     logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
   }
-}
 
-async function issueOtp(role: Role, phone: string): Promise<{ code: string }> {
-  const code = generateOtpCode();
-  const redis = getRedis();
-  await storeOtp(redis, "register", role, phone, code);
-
-  if (process.env.NODE_ENV !== "production") {
-    logger.info({ phone, role, code }, "Dev OTP issued (register)");
-  }
-
-  await dispatchOtpSms(phone, code);
   return { code };
 }
 
@@ -369,6 +397,101 @@ export async function logout(sessionId: string): Promise<void> {
     where: { id: sessionId },
     data: { revokedAt: new Date() },
   });
+}
+
+/**
+ * Send a password-reset OTP to a verified account's phone.
+ * Always returns success to avoid leaking whether the account exists.
+ */
+export async function forgotPassword(input: ForgotPasswordInput): Promise<ForgotPasswordResult> {
+  const phone = normalizePhone(input.phone);
+  const role = input.role;
+
+  const user = await prisma.user.findUnique({
+    where: { phone_role: { phone, role: toPrismaRole(role) } },
+  });
+
+  let devCode: string | undefined;
+  if (user?.phoneVerified && user.passwordHash) {
+    const { code } = await issueOtp(role, phone, "password_reset");
+    devCode = process.env.NODE_ENV !== "production" ? code : undefined;
+  } else {
+    logger.info({ phone, role }, "Password reset requested for unknown or incomplete account");
+  }
+
+  return {
+    ok: true,
+    expiresInSeconds: OTP_TTL_SECONDS,
+    devCode,
+    phone,
+  };
+}
+
+/**
+ * Verify password-reset OTP, set a new password, revoke old sessions, and sign in.
+ */
+export async function resetPassword(input: ResetPasswordInput): Promise<ResetPasswordResult> {
+  const phone = normalizePhone(input.phone);
+  const role = input.role;
+  const redis = getRedis();
+
+  const ok = await consumeOtp(redis, "password_reset", role, phone, input.code);
+  if (!ok) {
+    await prisma.otpAttempt
+      .create({ data: { phone, ip: input.ip ?? null, success: false } })
+      .catch(() => {});
+    throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
+  }
+
+  const passwordHash = await hashPassword(input.password);
+
+  let driverProfile: DriverProfile | null = null;
+  let sessionToken = "";
+  const user = await prisma.$transaction(async (tx) => {
+    const existing = await tx.user.findUnique({
+      where: { phone_role: { phone, role: toPrismaRole(role) } },
+      include: { driverProfile: { include: { vehicle: true } } },
+    });
+    if (!existing?.phoneVerified || !existing.passwordHash) {
+      throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
+    }
+
+    const updated = await tx.user.update({
+      where: { id: existing.id },
+      data: { passwordHash },
+    });
+
+    await tx.session.updateMany({
+      where: { userId: existing.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    driverProfile = existing.driverProfile;
+    if (role === "driver" && !driverProfile) {
+      driverProfile = await ensureDriverProfileTx(tx, existing.id);
+    }
+
+    const withProfile =
+      role === "driver"
+        ? { ...updated, driverProfile: driverProfile! }
+        : { ...updated, driverProfile: null as DriverProfile | null };
+
+    sessionToken = await createSession(
+      tx,
+      withProfile,
+      role,
+      input.userAgent,
+      input.ip,
+    );
+
+    return updated;
+  });
+
+  await prisma.otpAttempt
+    .create({ data: { phone, ip: input.ip ?? null, success: true } })
+    .catch(() => {});
+
+  return { ok: true, user: toUserDto(user, driverProfile), sessionToken };
 }
 
 export async function getMe(userId: string): Promise<MeResult> {

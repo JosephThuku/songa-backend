@@ -5,7 +5,7 @@ import request from "supertest";
 import { buildApp } from "../src/app.js";
 import { _resetEnvCache, loadEnv } from "../src/config/env.js";
 
-export const TEST_PASSWORD = "TestPass123";
+export const TEST_PASSWORD = "1234";
 
 export function buildTestApp(): Express {
   _resetEnvCache();

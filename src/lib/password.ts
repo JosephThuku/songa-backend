@@ -5,9 +5,11 @@ import { AppError } from "./errors.js";
 const scryptAsync = promisify(scrypt);
 const KEY_LEN = 64;
 
+const PIN_RE = /^\d{4}$/;
+
 export function validatePasswordStrength(password: string): void {
-  if (password.length < 8) {
-    throw new AppError("WEAK_PASSWORD", 400, "Password must be at least 8 characters.");
+  if (!PIN_RE.test(password)) {
+    throw new AppError("WEAK_PASSWORD", 400, "PIN must be exactly 4 digits.");
   }
 }
 

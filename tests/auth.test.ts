@@ -12,7 +12,16 @@ describe("POST /api/auth/register", () => {
     const app = buildTestApp();
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ phone: VALID_PHONE, role: "passenger", password: "short" });
+      .send({ phone: VALID_PHONE, role: "passenger", password: "12" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("WEAK_PASSWORD");
+  });
+
+  it("rejects non-numeric PIN", async () => {
+    const app = buildTestApp();
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ phone: VALID_PHONE, role: "passenger", password: "abcd" });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("WEAK_PASSWORD");
   });
@@ -121,6 +130,72 @@ describe("POST /api/auth/login", () => {
       });
     expect(res.status).toBe(200);
     expect(res.body.sessionToken).toBeTruthy();
+  });
+});
+
+describe("POST /api/auth/password/forgot and /api/auth/password/reset", () => {
+  const RESET_PHONE = "+254733444555";
+  const NEW_PASSWORD = "5678";
+
+  it("sends reset OTP and updates password with a new session", async () => {
+    const app = buildTestApp();
+    await createAuthSession(app, RESET_PHONE, "passenger");
+
+    const forgot = await request(app)
+      .post("/api/auth/password/forgot")
+      .set("x-dev-show-otp", "1")
+      .send({ phone: RESET_PHONE, role: "passenger" });
+    expect(forgot.status).toBe(200);
+    expect(forgot.body.devCode).toMatch(/^\d{6}$/);
+
+    const reset = await request(app)
+      .post("/api/auth/password/reset")
+      .send({
+        phone: RESET_PHONE,
+        role: "passenger",
+        code: forgot.body.devCode,
+        password: NEW_PASSWORD,
+      });
+    expect(reset.status).toBe(200);
+    expect(reset.body.ok).toBe(true);
+    expect(reset.body.sessionToken).toBeTruthy();
+
+    const oldLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ identifier: RESET_PHONE, password: TEST_PASSWORD, role: "passenger" });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ identifier: RESET_PHONE, password: NEW_PASSWORD, role: "passenger" });
+    expect(newLogin.status).toBe(200);
+  });
+
+  it("returns 401 for invalid reset OTP", async () => {
+    const app = buildTestApp();
+    await createAuthSession(app, RESET_PHONE, "driver");
+
+    const res = await request(app)
+      .post("/api/auth/password/reset")
+      .send({
+        phone: RESET_PHONE,
+        role: "driver",
+        code: "000000",
+        password: NEW_PASSWORD,
+      });
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_OTP");
+  });
+
+  it("always returns 200 for forgot even when phone is unknown", async () => {
+    const app = buildTestApp();
+    const res = await request(app)
+      .post("/api/auth/password/forgot")
+      .set("x-dev-show-otp", "1")
+      .send({ phone: "+254799999999", role: "passenger" });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.devCode).toBeUndefined();
   });
 });
 

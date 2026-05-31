@@ -14,7 +14,7 @@ export const roleSchema = z
 
 const passwordSchema = z
   .string({ required_error: "password is required" })
-  .min(8, "password must be at least 8 characters");
+  .regex(/^\d{4}$/, "password must be exactly 4 digits");
 
 export const RegisterRequestSchema = registry.register(
   "RegisterRequest",
@@ -25,7 +25,7 @@ export const RegisterRequestSchema = registry.register(
         .min(1, "phone is required")
         .openapi({ example: "+254712000001" }),
       role: roleSchema,
-      password: passwordSchema.openapi({ example: "MySecurePass1" }),
+      password: passwordSchema.openapi({ example: "1234" }),
       name: z.string().trim().min(1).max(80).optional().openapi({ example: "John Doe" }),
       email: z.string().trim().email().max(254).optional().openapi({ example: "john@example.com" }),
     })
@@ -63,6 +63,34 @@ export const LoginRequestSchema = registry.register(
     .strict(),
 );
 
+export const ForgotPasswordRequestSchema = registry.register(
+  "ForgotPasswordRequest",
+  z
+    .object({
+      phone: z
+        .string({ required_error: "phone is required" })
+        .min(1, "phone is required")
+        .openapi({ example: "+254712000001" }),
+      role: roleSchema,
+    })
+    .strict(),
+);
+
+export const ResetPasswordRequestSchema = registry.register(
+  "ResetPasswordRequest",
+  z
+    .object({
+      phone: z.string().min(1).openapi({ example: "+254712000001" }),
+      role: roleSchema,
+      code: z
+        .string({ required_error: "code is required" })
+        .regex(/^\d{4,6}$/, "code must be 4–6 digits")
+        .openapi({ example: "123456" }),
+      password: passwordSchema.openapi({ example: "5678" }),
+    })
+    .strict(),
+);
+
 export const RegisterResponseSchema = registry.register(
   "RegisterResponse",
   z.object({
@@ -84,6 +112,24 @@ export const ConfirmRegistrationResponseSchema = registry.register(
 export const LoginResponseSchema = registry.register(
   "LoginResponse",
   z.object({
+    sessionToken: z.string(),
+    user: UserSchema,
+  }),
+);
+
+export const ForgotPasswordResponseSchema = registry.register(
+  "ForgotPasswordResponse",
+  z.object({
+    ok: z.literal(true),
+    expiresInSeconds: z.number().int(),
+    devCode: z.string().optional(),
+  }),
+);
+
+export const ResetPasswordResponseSchema = registry.register(
+  "ResetPasswordResponse",
+  z.object({
+    ok: z.literal(true),
     sessionToken: z.string(),
     user: UserSchema,
   }),
@@ -213,6 +259,41 @@ registry.registerPath({
       content: { "application/json": { schema: ConfirmRegistrationResponseSchema } },
     },
     401: { description: "Invalid OTP.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/password/forgot",
+  tags: ["Auth"],
+  summary: "Request a password-reset OTP (SMS)",
+  request: {
+    body: { required: true, content: { "application/json": { schema: ForgotPasswordRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "If the account exists, an OTP was sent.",
+      content: { "application/json": { schema: ForgotPasswordResponseSchema } },
+    },
+    400: { description: "Invalid input.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/password/reset",
+  tags: ["Auth"],
+  summary: "Verify reset OTP and set a new password",
+  request: {
+    body: { required: true, content: { "application/json": { schema: ResetPasswordRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Password updated; new session issued.",
+      content: { "application/json": { schema: ResetPasswordResponseSchema } },
+    },
+    401: { description: "Invalid OTP.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    400: { description: "Weak password.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
   },
 });
 

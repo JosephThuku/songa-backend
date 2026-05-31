@@ -5,8 +5,10 @@ import { AppError, asyncHandler } from "../lib/errors.js";
 import { SESSION_TTL_SECONDS } from "../lib/jwt.js";
 import {
   ConfirmRegistrationRequestSchema,
+  ForgotPasswordRequestSchema,
   LoginRequestSchema,
   RegisterRequestSchema,
+  ResetPasswordRequestSchema,
 } from "../schemas/auth.schema.js";
 import { rateLimit, requestIp } from "../middleware/rate-limit.js";
 import {
@@ -15,11 +17,13 @@ import {
 } from "../middleware/require-auth.js";
 import {
   confirmRegistration,
+  forgotPassword,
   getMe,
   isWebClient,
   login,
   logout,
   register,
+  resetPassword,
 } from "../services/auth.service.js";
 
 const router: Router = Router();
@@ -103,6 +107,78 @@ router.post(
       code: data.code,
       ip: requestIp(req),
       userAgent: ua,
+    });
+
+    if (isWebClient(ua)) {
+      res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: SESSION_TTL_SECONDS * 1000,
+        path: "/",
+      });
+    }
+
+    res.status(200).json(result);
+  }),
+);
+
+// ---------- POST /api/auth/password/forgot ----------
+router.post(
+  "/password/forgot",
+  rateLimit({
+    prefix: "auth:password:forgot:ip",
+    max: 10,
+    windowMs: 60 * 1000,
+    identifier: (req) => requestIp(req),
+    message: "Too many reset attempts. Try again in a minute.",
+  }),
+  rateLimit({
+    prefix: "auth:password:forgot:phone",
+    max: 3,
+    windowMs: 15 * 60 * 1000,
+    identifier: (req) => {
+      const phone = (req.body as { phone?: unknown })?.phone;
+      return typeof phone === "string" && phone.length > 0 ? phone : null;
+    },
+    message: "Too many reset attempts for this phone. Try again later.",
+  }),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(ForgotPasswordRequestSchema, req.body);
+    const result = await forgotPassword({ phone: data.phone, role: data.role });
+    const showDevCode = process.env.NODE_ENV !== "production" && req.header("x-dev-show-otp") === "1";
+    const body: { ok: true; expiresInSeconds: number; devCode?: string } = {
+      ok: true,
+      expiresInSeconds: result.expiresInSeconds,
+    };
+    if (showDevCode && result.devCode) body.devCode = result.devCode;
+    res.status(200).json(body);
+  }),
+);
+
+// ---------- POST /api/auth/password/reset ----------
+router.post(
+  "/password/reset",
+  rateLimit({
+    prefix: "auth:password:reset:phone",
+    max: 5,
+    windowMs: 5 * 60 * 1000,
+    identifier: (req) => {
+      const phone = (req.body as { phone?: unknown })?.phone;
+      return typeof phone === "string" && phone.length > 0 ? phone : null;
+    },
+    message: "Too many reset attempts. Request a new code.",
+  }),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(ResetPasswordRequestSchema, req.body);
+    const ua = req.header("user-agent") ?? null;
+    const result = await resetPassword({
+      phone: data.phone,
+      role: data.role,
+      code: data.code,
+      password: data.password,
+      userAgent: ua,
+      ip: requestIp(req),
     });
 
     if (isWebClient(ua)) {
