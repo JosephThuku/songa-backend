@@ -1,15 +1,10 @@
 import { RidePhase } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
-import { haversineDistanceKm, type LatLng } from "../lib/geo.js";
+import type { LatLng } from "../lib/geo.js";
 import { getDrivingRoute, type RoutePlan } from "../lib/routing.js";
 import { prisma } from "../lib/prisma.js";
 
-function haversineKm(a: LatLng, b: LatLng): number {
-  return haversineDistanceKm(a, b);
-}
-
 async function resolveDriverPoint(
-  rideId: string,
   driverId: string | null,
   driverLocation: unknown,
 ): Promise<LatLng | null> {
@@ -91,18 +86,13 @@ export async function getRideNavigation(
     throw new AppError("INVALID_INPUT", 400, "Ride is missing pickup or dropoff coordinates.");
   }
 
-  const driverPoint = await resolveDriverPoint(ride.id, ride.driverId, ride.driverLocation);
-  const destination = target === "pickup" ? pickup : dropoff;
-  let routeOrigin = driverPoint ?? pickup;
-
-  // Avoid a zero-length polyline when the driver has not streamed GPS yet.
-  if (
-    target === "pickup" &&
-    !driverPoint &&
-    haversineKm(routeOrigin, destination) < 0.05
-  ) {
-    routeOrigin = dropoff;
+  const driverPoint = await resolveDriverPoint(ride.driverId, ride.driverLocation);
+  if (!driverPoint) {
+    throw new AppError("LOCATION_UNAVAILABLE", 409, "Driver location is not available yet.");
   }
+
+  const destination = target === "pickup" ? pickup : dropoff;
+  const routeOrigin = driverPoint;
 
   const plan = await getDrivingRoute(routeOrigin, destination);
   const etaMinutes = plan.durationInTrafficMinutes;

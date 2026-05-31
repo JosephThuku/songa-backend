@@ -1,7 +1,7 @@
 // Auth: register → confirm OTP → login (phone/email + password).
 
 import cuid from "cuid";
-import { OnboardingStatus, Prisma, UserRole, type DriverProfile, type User } from "@prisma/client";
+import { OnboardingStatus, Prisma, UserRole, type DriverProfile, type User, type Vehicle } from "@prisma/client";
 import type { Role } from "../lib/auth-role.js";
 import { AppError } from "../lib/errors.js";
 import { isEmailIdentifier, normalizeEmail, normalizeLoginIdentifier } from "../lib/identifier.js";
@@ -132,14 +132,18 @@ async function createSession(
 async function ensureDriverProfileTx(
   tx: Prisma.TransactionClient,
   userId: string,
-): Promise<DriverProfile> {
-  const existing = await tx.driverProfile.findUnique({ where: { userId } });
+): Promise<DriverProfile & { vehicle: Vehicle | null }> {
+  const existing = await tx.driverProfile.findUnique({
+    where: { userId },
+    include: { vehicle: true },
+  });
   if (existing) return existing;
   return tx.driverProfile.create({
     data: {
       userId,
       onboardingStatus: OnboardingStatus.approved,
     },
+    include: { vehicle: true },
   });
 }
 

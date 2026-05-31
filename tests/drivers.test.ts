@@ -100,6 +100,17 @@ describe("driver location, nearby, and offers", () => {
       .send(locationBody);
     expect(offline.status).toBe(204);
 
+    const iosInvalidHeading = await request(app)
+      .post("/api/drivers/me/location")
+      .set("Authorization", `Bearer ${driver.token}`)
+      .send({ ...locationBody, heading: -1 });
+    expect(iosInvalidHeading.status).toBe(204);
+
+    const profile = await prisma.driverProfile.findUniqueOrThrow({
+      where: { userId: driver.userId },
+    });
+    expect(profile.location).toMatchObject({ lat: locationBody.lat, lng: locationBody.lng });
+
     await setupDriverForDispatch(app, driver.token, {
       lat: locationBody.lat,
       lng: locationBody.lng,

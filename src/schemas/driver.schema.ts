@@ -15,15 +15,24 @@ export const DriverOnlineResponseSchema = registry.register(
   }),
 );
 
+function optionalGpsNumber(min: number, max: number) {
+  return z.preprocess((value) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+    if (value < min || value > max) return undefined;
+    return value;
+  }, z.number().min(min).max(max).optional());
+}
+
 export const DriverLocationRequestSchema = registry.register(
   "DriverLocationRequest",
   z
     .object({
       lat: z.number().min(-90).max(90),
       lng: z.number().min(-180).max(180),
-      heading: z.number().min(0).max(360).optional(),
-      speedKmh: z.number().min(0).optional(),
-      accuracyM: z.number().min(0).optional(),
+      // Expo/iOS often sends heading -1 when unavailable; ignore instead of 400.
+      heading: optionalGpsNumber(0, 360),
+      speedKmh: optionalGpsNumber(0, 1_000),
+      accuracyM: optionalGpsNumber(0, 10_000),
       recordedAt: z.string().datetime().optional(),
     })
     .strict(),
