@@ -57,6 +57,24 @@ Useful local URLs:
 | `/socket.io` | Socket.IO realtime endpoint |
 | `/uploads/*` | Public uploaded files |
 
+## API docs on Render
+
+After deploy, open Swagger UI at:
+
+```text
+https://<your-service>.onrender.com/api/docs
+```
+
+Use `/api/docs` (not `/api/docs/`). The app serves HTML at both paths, but assets such as `swagger-ui.css` are rooted at `/api/docs/`; a trailing slash on the page URL alone can break relative asset URLs behind some proxies.
+
+If styles or scripts fail to load:
+
+1. Hard-refresh the page (cached `text/plain` error responses are common after a bad first load).
+2. On Render’s free tier, wait a few seconds and retry while the service wakes from idle (`GET /api/health` should return `200` first).
+3. In DevTools → Network, confirm `swagger-ui.css` returns `200` with `content-type: text/css`.
+
+Raw OpenAPI JSON: `GET /api/openapi.json` on the same host.
+
 ## Local Development Notes
 
 The default `.env.example` is set up for a productive local workflow:
