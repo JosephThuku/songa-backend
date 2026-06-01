@@ -22,6 +22,10 @@ async function resetDatabase(): Promise<void> {
   // (and writing) into the next test's freshly-reset database.
   clearAllOfferTimeouts();
   await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS=0");
+  await prisma.sharedDepartureSeat.deleteMany();
+  await prisma.sharedDeparture.deleteMany();
+  await prisma.sgrScheduleSlot.deleteMany();
+  await prisma.corridorLocation.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.device.deleteMany();
   await prisma.walletTransaction.deleteMany();

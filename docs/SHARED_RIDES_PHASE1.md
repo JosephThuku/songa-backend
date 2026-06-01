@@ -56,6 +56,7 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 - [ ] Notifications / SMS on match
 - [x] OpenAPI docs for shared-rides routes (`src/schemas/shared-rides.schema.ts`, tag **Shared rides**)
 - [x] Integrator markdown [`SHARED_RIDES_API.md`](./SHARED_RIDES_API.md)
+- [x] Tests: `tests/shared-rides.test.ts`, `tests/shared-rides-suggestions.test.ts`
 
 ---
 
