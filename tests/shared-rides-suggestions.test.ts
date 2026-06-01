@@ -95,4 +95,13 @@ describe("buildSuggestionsFromSlots", () => {
     });
     expect(suggestions[0]?.headline).toMatch(/arrival/i);
   });
+
+  it("serializes vanDepartureAt in EAT (+03:00)", () => {
+    const slots: SgrScheduleSlotRef[] = [
+      slot({ id: "morning", direction: "to_sgr", sgrEventTime: "08:00", vanDepartureTime: "06:00" }),
+    ];
+    const suggestions = buildSuggestionsFromSlots(slots, "to_sgr", NAIROBI_MID_MORNING);
+    expect(suggestions[0]?.vanDepartureAt).toMatch(/\+03:00$/);
+    expect(suggestions[0]?.vanDepartureAt).toContain("T06:00:00");
+  });
 });

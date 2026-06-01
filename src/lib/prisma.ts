@@ -1,4 +1,4 @@
-// NEW — PrismaClient singleton.
+// PrismaClient singleton. After schema changes: `npm run db:sync` (see docs/PRISMA.md).
 
 import { PrismaClient } from "@prisma/client";
 

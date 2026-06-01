@@ -26,10 +26,10 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
 ## Phase 2 — Passenger intent
 
-- [ ] Prisma: `SharedTripRequest` (+ reservations)
-- [ ] `POST /api/shared-rides/trip-requests`
-- [ ] `GET /api/shared-rides/trip-requests/mine`
-- [ ] Wire “Request van for [slot]” (uses `suggestedTripRequests` payload)
+- [x] Prisma: `SharedTripRequest` (+ `SharedTripRequestReservation`)
+- [x] `POST /api/shared-rides/trip-requests`
+- [x] `GET /api/shared-rides/trip-requests/mine`
+- [ ] Mobile: wire “Request van for [slot]” (POST body = `suggestedTripRequests` item)
 
 ---
 
@@ -62,16 +62,12 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
 ## TypeScript / Prisma client
 
+See **[PRISMA.md](./PRISMA.md)** — stale client causes `Property 'sgrScheduleSlot' does not exist on PrismaClient` in the IDE.
+
 Enums and DTOs live in **`src/domain/shared-rides.ts`** (not imported from `@prisma/client` in app code).  
-After any `schema.prisma` change run:
+After any `schema.prisma` change run **`npm run db:sync`** from `songa-backend/`, then restart the TS server.
 
-```bash
-npx prisma generate
-```
-
-`npm run typecheck` runs `prisma generate` first automatically.
-
-If the IDE shows `Property 'sharedDepartureSeat' does not exist on PrismaClient`, your client is stale — run `npx prisma generate` (tests also run `prisma db push` without `--skip-generate` on startup).
+`npm run dev` / `npm test` / `npm run typecheck` also run `prisma generate` (or `ensure-prisma-client`) automatically.
 
 ## Seed commands
 

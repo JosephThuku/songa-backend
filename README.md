@@ -31,7 +31,7 @@ cp .env.example .env
 # 3. Edit .env and set at least:
 # DATABASE_URL, SESSION_JWT_SECRET, OTP_PEPPER
 
-# 4. Apply the Prisma schema and generate the Prisma client
+# 4. Apply the Prisma schema and generate the Prisma client (required for IDE types)
 npm run db:sync
 
 # 5. Seed local passenger, driver, vehicle, and place data
@@ -40,6 +40,8 @@ npm run db:seed
 # 6. Start the development server
 npm run dev
 ```
+
+If the editor shows `Property 'sgrScheduleSlot' does not exist on PrismaClient`, run `npm run db:sync` again and restart the TypeScript server. See [docs/PRISMA.md](./docs/PRISMA.md).
 
 By default the API listens on:
 

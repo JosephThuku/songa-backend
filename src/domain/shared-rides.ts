@@ -39,6 +39,24 @@ export const SharedDepartureSeatStatus = {
 export type SharedDepartureSeatStatus =
   (typeof SharedDepartureSeatStatus)[keyof typeof SharedDepartureSeatStatus];
 
+export const SharedTripRequestStatus = {
+  open: "open",
+  matched: "matched",
+  cancelled: "cancelled",
+  expired: "expired",
+} as const;
+
+export type SharedTripRequestStatus =
+  (typeof SharedTripRequestStatus)[keyof typeof SharedTripRequestStatus];
+
+export const SharedTripRequestReservationStatus = {
+  active: "active",
+  cancelled: "cancelled",
+} as const;
+
+export type SharedTripRequestReservationStatus =
+  (typeof SharedTripRequestReservationStatus)[keyof typeof SharedTripRequestReservationStatus];
+
 /** Minimal corridor point for zone resolve / maps. */
 export type CorridorLocationRef = {
   id: string;

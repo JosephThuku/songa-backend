@@ -1,4 +1,8 @@
-/** Wall-clock parts in Africa/Nairobi (no DST). */
+/** Wall-clock parts in Africa/Nairobi (EAT, UTC+3, no DST). */
+
+export const NAIROBI_TIMEZONE = "Africa/Nairobi" as const;
+/** Fixed offset for API serialization (Kenya does not observe DST). */
+export const NAIROBI_ISO_OFFSET = "+03:00" as const;
 
 export type NairobiParts = {
   year: number;
@@ -65,4 +69,14 @@ export function formatHm(value: string): string {
   const h12 = hour % 12 || 12;
   const ampm = hour < 12 ? "AM" : "PM";
   return `${h12}:${String(minute).padStart(2, "0")} ${ampm}`;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** ISO 8601 in East Africa Time, e.g. `2026-06-02T06:00:00+03:00`. */
+export function toNairobiIso(at: Date): string {
+  const p = getNairobiParts(at);
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}:00${NAIROBI_ISO_OFFSET}`;
 }

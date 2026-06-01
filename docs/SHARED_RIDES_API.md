@@ -4,6 +4,8 @@ Coast **SGR Miritini** corridor: scheduled vans, fixed Madaraka timetables, prep
 
 **Auth:** All endpoints require a passenger or driver JWT (`Authorization: Bearer …`) or browser `songa_session` cookie — same as `/api/rides`.
 
+**Times (EAT):** Datetime fields (`vanDepartureAt`, `requestedDepartureAt`, `departureAt`) are serialized as **ISO 8601 in East Africa Time** with fixed offset `+03:00` (timezone `Africa/Nairobi`), e.g. `2026-06-02T06:00:00+03:00`. The database stores UTC; clients may POST the same string from suggestions or any valid ISO instant (`Z` or `+03:00`).
+
 **Validation (Phase 1):** Query and path params are parsed with **Zod** in the route handlers. Invalid input returns **400** with the standard error envelope:
 
 ```json
@@ -171,12 +173,39 @@ Same JWT auth as the rest of the API: **`POST /api/auth/login`** with **`role: "
 
 ---
 
-## Not in Phase 1 (coming)
+## Trip requests (Phase 2)
+
+Passenger-only (`role: passenger`). One-tap: copy a `suggestedTripRequests` object from GET `/suggestions` or `/departures/search` into POST body.
+
+### `POST /api/shared-rides/trip-requests`
+
+```json
+{
+  "sgrScheduleSlotId": "…",
+  "direction": "to_sgr",
+  "corridorLocationId": "…",
+  "departureDate": "2026-06-02",
+  "vanDepartureAt": "2026-06-02T06:00:00+03:00",
+  "seatsRequested": 1,
+  "pickupNote": "Near City Mall gate",
+  "notes": "optional"
+}
+```
+
+- Pools open requests by **same slot + same `vanDepartureAt`** (multiple passengers → one `tripRequest.id`, summed `poolSeatsTotal`).
+- Re-posting updates your reservation (`seatsRequested`, `pickupNote`).
+- **400** `CORRIDOR_MISMATCH`, `SLOT_NOT_BOOKABLE`, `DEPARTURE_IN_PAST` · **404** `SGR_SLOT_NOT_FOUND`
+
+### `GET /api/shared-rides/trip-requests/mine`
+
+Returns `{ items: [{ tripRequest, reservation }] }` for active reservations on future open/matched pools.
+
+---
+
+## Not yet implemented
 
 | Method | Path |
 |--------|------|
-| `POST` | `/api/shared-rides/trip-requests` |
-| `GET` | `/api/shared-rides/trip-requests/mine` |
 | `POST` | `/api/shared-rides/departures/{id}/seats/reserve` |
 
 See [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) checklist.
