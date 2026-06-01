@@ -24,6 +24,8 @@ Examples that return **400**: missing `direction` on `/suggestions`, invalid `da
 
 **Code:** Routes [`src/routes/shared-rides.ts`](../src/routes/shared-rides.ts) · schemas [`src/schemas/shared-rides.schema.ts`](../src/schemas/shared-rides.schema.ts).
 
+**Mobile:** User flows, screen map, and route status (live vs upcoming) → **[SHARED_RIDES_MOBILE_FLOW.md](./SHARED_RIDES_MOBILE_FLOW.md)**.
+
 ---
 
 ## Endpoints (Phase 1)

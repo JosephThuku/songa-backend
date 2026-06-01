@@ -4,6 +4,8 @@ API prefix: **`/api/shared-rides`** (admin later: **`/api/admin/shared-rides`**)
 
 Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
+**Mobile integrators:** [SHARED_RIDES_MOBILE_FLOW.md](./SHARED_RIDES_MOBILE_FLOW.md) — routes, user flows, diagrams.
+
 ---
 
 ## Phase 1 — Catalog + browse (current sprint)
