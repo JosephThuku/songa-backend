@@ -5,6 +5,7 @@ import { PrismaClient, UserRole, OnboardingStatus } from "@prisma/client";
 import cuid from "cuid";
 import { indexDriverLocation } from "../src/lib/driver-geo.js";
 import { hashPassword } from "../src/lib/password.js";
+import { seedAdminUser, SEED_ADMIN } from "./seeds/admin-user.js";
 import { seedSharedRidesCoast } from "./seeds/shared-rides-coast.js";
 
 const prisma = new PrismaClient();
@@ -318,6 +319,7 @@ async function seedDriverWallet(driverId: string) {
 async function main() {
   const passwordHash = await hashPassword(SEED_PASSWORD);
   const passenger = await upsertPassenger(passwordHash);
+  await seedAdminUser(prisma, passwordHash);
 
   const drivers: Awaited<ReturnType<typeof upsertDriver>>[] = [];
   for (const seed of DRIVERS) {
@@ -337,6 +339,11 @@ async function main() {
   console.log(`  Phone: ${PASSENGER.phone}`);
   console.log(`  Email: ${PASSENGER.email}`);
   console.log(`  Role:  passenger\n`);
+
+  console.log("Admin (shared-rides catalog / ops):");
+  console.log(`  Phone: ${SEED_ADMIN.phone}`);
+  console.log(`  Email: ${SEED_ADMIN.email}`);
+  console.log(`  Role:  admin (login with role admin — not registerable)\n`);
 
   console.log("Drivers (log in on driver app / driver role):");
   for (const seed of DRIVERS) {

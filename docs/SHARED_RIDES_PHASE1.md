@@ -16,8 +16,8 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 - [x] `GET /api/shared-rides/sgr-schedule-slots`
 - [x] `GET /api/shared-rides/suggestions` (Madaraka-aware, lead time + arrival grace)
 - [x] `GET /api/shared-rides/departures/search` (+ `suggestedTripRequests` when empty)
-- [ ] Admin CRUD: `PATCH/POST/DELETE /api/admin/shared-rides/corridor-locations`
-- [ ] Admin CRUD: `PATCH/POST/DELETE /api/admin/shared-rides/sgr-schedule-slots`
+- [x] Admin CRUD: `POST/PATCH/DELETE /api/admin/shared-rides/corridor-locations`
+- [x] Admin CRUD: `POST/PATCH/DELETE /api/admin/shared-rides/sgr-schedule-slots`
 - [ ] `POST /api/shared-rides/corridor-locations/resolve` (GPS → zone)
 - [ ] Mobile: SGR entry → shared flow (replace mock `ride-share.tsx`)
 - [ ] Mobile: empty search → one-tap suggestion → `trip-requests` (Phase 2)
@@ -70,6 +70,8 @@ npx prisma generate
 ```
 
 `npm run typecheck` runs `prisma generate` first automatically.
+
+If the IDE shows `Property 'sharedDepartureSeat' does not exist on PrismaClient`, your client is stale — run `npx prisma generate` (tests also run `prisma db push` without `--skip-generate` on startup).
 
 ## Seed commands
 

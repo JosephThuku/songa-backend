@@ -12,6 +12,13 @@ export const roleSchema = z
   .enum(["passenger", "driver"], { errorMap: () => ({ message: "role must be 'passenger' or 'driver'" }) })
   .openapi({ example: "passenger" });
 
+/** Login only — `admin` accounts are seeded, not self-registered. */
+export const loginRoleSchema = z
+  .enum(["passenger", "driver", "admin"], {
+    errorMap: () => ({ message: "role must be 'passenger', 'driver', or 'admin'" }),
+  })
+  .openapi({ example: "passenger" });
+
 const passwordSchema = z
   .string({ required_error: "password is required" })
   .min(8, "password must be at least 8 characters");
@@ -58,7 +65,7 @@ export const LoginRequestSchema = registry.register(
           description: "E.164 phone or email address.",
         }),
       password: z.string({ required_error: "password is required" }).min(1),
-      role: roleSchema,
+      role: loginRoleSchema,
     })
     .strict(),
 );

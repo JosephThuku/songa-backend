@@ -72,7 +72,7 @@ export const UserSchema = registry.register(
   z
     .object({
       id: z.string().openapi({ example: "usr_8f3a2b1c", description: "Always prefixed `usr_`." }),
-      role: z.enum(["passenger", "driver"]),
+      role: z.enum(["passenger", "driver", "admin"]),
       name: z.string().nullable().openapi({ example: "John Doe" }),
       phone: z.string().openapi({ example: "+254712000001", description: "E.164" }),
       email: z.string().email().nullable().openapi({ example: "john@example.com" }),

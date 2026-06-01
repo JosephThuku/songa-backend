@@ -12,6 +12,7 @@ datasource db {
 enum UserRole {
   passenger
   driver
+  admin
 }
 
 enum OnboardingStatus {

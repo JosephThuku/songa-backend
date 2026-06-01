@@ -148,6 +148,29 @@ Until then, treat `capacity` / `availableSeats` on search results as **catalog d
 
 ---
 
+## Admin catalog (`/api/admin/shared-rides`)
+
+Same JWT auth as the rest of the API: **`POST /api/auth/login`** with **`role: "admin"`** and `Authorization: Bearer <sessionToken>` (or session cookie). Admin accounts are **not** creatable via register — use the dev seed user:
+
+| Field | Dev seed value |
+|-------|----------------|
+| Phone | `+254700000001` |
+| Email | `admin@songa.dev` |
+| Password | Same as other seed accounts (`SongaDev1` from `npm run db:seed`) |
+
+| Method | Path | Notes |
+|--------|------|--------|
+| `POST` | `/api/admin/shared-rides/corridor-locations` | Create zone |
+| `PATCH` | `/api/admin/shared-rides/corridor-locations/{id}` | Update |
+| `DELETE` | `/api/admin/shared-rides/corridor-locations/{id}` | Soft-delete (`isActive: false`) |
+| `POST` | `/api/admin/shared-rides/sgr-schedule-slots` | Create slot |
+| `PATCH` | `/api/admin/shared-rides/sgr-schedule-slots/{id}` | Update |
+| `DELETE` | `/api/admin/shared-rides/sgr-schedule-slots/{id}` | Soft-delete |
+
+`DELETE` on **SGR Miritini** (`sgr-miritini`) is rejected with `409 CORRIDOR_PROTECTED`.
+
+---
+
 ## Not in Phase 1 (coming)
 
 | Method | Path |
@@ -155,6 +178,5 @@ Until then, treat `capacity` / `availableSeats` on search results as **catalog d
 | `POST` | `/api/shared-rides/trip-requests` |
 | `GET` | `/api/shared-rides/trip-requests/mine` |
 | `POST` | `/api/shared-rides/departures/{id}/seats/reserve` |
-| `POST` | `/api/admin/shared-rides/corridor-locations` |
 
 See [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) checklist.

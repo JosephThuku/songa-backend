@@ -2,8 +2,11 @@
 
 import type { Express } from "express";
 import request from "supertest";
+import { seedAdminUser, SEED_ADMIN } from "../prisma/seeds/admin-user.js";
 import { buildApp } from "../src/app.js";
 import { _resetEnvCache, loadEnv } from "../src/config/env.js";
+import { hashPassword } from "../src/lib/password.js";
+import { prisma } from "../src/lib/prisma.js";
 
 export const TEST_PASSWORD = "TestPass123";
 
@@ -61,6 +64,30 @@ export async function createAuthSession(
     throw new Error(`login failed: ${login.status} ${JSON.stringify(login.body)}`);
   }
 
+  return {
+    sessionToken: login.body.sessionToken as string,
+    user: login.body.user as AuthSession["user"],
+  };
+}
+
+/** Ensures the seeded admin user exists (not creatable via register). */
+export async function ensureAdminUser(password = TEST_PASSWORD): Promise<void> {
+  const passwordHash = await hashPassword(password);
+  await seedAdminUser(prisma, passwordHash);
+}
+
+/** Login as seeded admin — use for `/api/admin/shared-rides` tests. */
+export async function loginAsAdmin(
+  app: Express,
+  password = TEST_PASSWORD,
+): Promise<AuthSession> {
+  await ensureAdminUser(password);
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ identifier: SEED_ADMIN.phone, password, role: "admin" });
+  if (login.status !== 200) {
+    throw new Error(`admin login failed: ${login.status} ${JSON.stringify(login.body)}`);
+  }
   return {
     sessionToken: login.body.sessionToken as string,
     user: login.body.user as AuthSession["user"],

@@ -52,7 +52,7 @@ export async function requireAuth(
     }
 
     const role = payload.role;
-    if (role !== "passenger" && role !== "driver") {
+    if (role !== "passenger" && role !== "driver" && role !== "admin") {
       throw new AppError("UNAUTHORIZED", 401, "Invalid session role.");
     }
 

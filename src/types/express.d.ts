@@ -6,7 +6,7 @@ declare global {
   namespace Express {
     interface UserContext {
       id: string;
-      role: "passenger" | "driver";
+      role: "passenger" | "driver" | "admin";
       sessionId: string;
     }
     interface Request {

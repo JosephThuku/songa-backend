@@ -12,6 +12,7 @@ import ridesRouter from "./rides.js";
 import mpesaRouter from "./mpesa.js";
 import passengersRouter from "./passengers.js";
 import sharedRidesRouter from "./shared-rides.js";
+import adminSharedRidesRouter from "./admin-shared-rides.js";
 
 const router: Router = Router();
 
@@ -29,6 +30,7 @@ router.use("/places", placesRouter);
 router.use("/mpesa", mpesaRouter);
 router.use("/passengers", passengersRouter);
 router.use("/shared-rides", sharedRidesRouter);
+router.use("/admin/shared-rides", adminSharedRidesRouter);
 
 // Docs surface — Swagger UI at /api/docs, raw spec at /api/openapi.json.
 router.use("/", docsRouter);

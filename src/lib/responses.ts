@@ -19,7 +19,7 @@ export interface DriverProfileDto {
 
 export interface UserDto {
   id: string;
-  role: "passenger" | "driver";
+  role: "passenger" | "driver" | "admin";
   name: string | null;
   phone: string;
   email: string | null;
@@ -233,7 +233,10 @@ function resolveDriverLocationForDto(ride: RideDtoInput): unknown {
   return ride.driverLocation ?? null;
 }
 
-export function toRideDto(ride: RideDtoInput, viewer?: { id: string; role: "passenger" | "driver" }): RideDto {
+export function toRideDto(
+  ride: RideDtoInput,
+  viewer?: { id: string; role: "passenger" | "driver" | "admin" },
+): RideDto {
   const driverProfile = ride.driver?.driverProfile ?? null;
   const vehicle = driverProfile?.vehicle ?? null;
   const showPassengerPhone =
