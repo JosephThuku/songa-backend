@@ -4,7 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import { AppError } from "../lib/errors.js";
 
 export function requireRole(
-  ...roles: Array<"passenger" | "driver">
+  ...roles: Array<"passenger" | "driver" | "admin">
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, _res, next) => {
     if (!req.user) {

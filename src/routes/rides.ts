@@ -140,6 +140,9 @@ router.get(
   "/:rideId/navigation",
   asyncHandler(async (req, res) => {
     const user = userOrThrow(req);
+    if (user.role !== "passenger" && user.role !== "driver") {
+      throw new AppError("FORBIDDEN", 403, "Navigation is not available for this role.");
+    }
     res.status(200).json({
       navigation: await getRideNavigation(req.params.rideId, user.id, user.role),
     });

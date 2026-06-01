@@ -14,6 +14,8 @@ import "../schemas/driver.schema.js";
 import "../schemas/booking.schema.js";
 import "../schemas/wallet.schema.js";
 import "../schemas/notification.schema.js";
+import "../schemas/shared-rides.schema.js";
+import "../schemas/shared-rides-admin.schema.js";
 
 const VERSION = "0.1.0";
 
@@ -44,6 +46,16 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV31["generate
       { name: "Drivers", description: "Driver profile and availability." },
       { name: "Bookings", description: "Seat bookings and payment sessions." },
       { name: "Notifications", description: "In-app notification inbox and device tokens." },
+      {
+        name: "Shared rides",
+        description:
+          "Coast SGR Miritini shared vans: corridor zones, Madaraka timetable slots, departures browse, trip suggestions. See docs/SHARED_RIDES_API.md.",
+      },
+      {
+        name: "Shared rides (admin)",
+        description:
+          "Catalog CRUD for corridor locations and schedule slots. Requires `X-Shared-Rides-Admin-Key`.",
+      },
     ],
   });
 }

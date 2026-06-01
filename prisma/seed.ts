@@ -5,6 +5,8 @@ import { PrismaClient, UserRole, OnboardingStatus } from "@prisma/client";
 import cuid from "cuid";
 import { indexDriverLocation } from "../src/lib/driver-geo.js";
 import { hashPassword } from "../src/lib/password.js";
+import { seedAdminUser, SEED_ADMIN } from "./seeds/admin-user.js";
+import { seedSharedRidesCoast } from "./seeds/shared-rides-coast.js";
 
 const prisma = new PrismaClient();
 
@@ -317,8 +319,9 @@ async function seedDriverWallet(driverId: string) {
 async function main() {
   const passwordHash = await hashPassword(SEED_PASSWORD);
   const passenger = await upsertPassenger(passwordHash);
+  await seedAdminUser(prisma, passwordHash);
 
-  const drivers = [];
+  const drivers: Awaited<ReturnType<typeof upsertDriver>>[] = [];
   for (const seed of DRIVERS) {
     const row = await upsertDriver(seed, passwordHash);
     await seedDriverWallet(row.user.id);
@@ -327,6 +330,8 @@ async function main() {
 
   await seedPassengerNotifications(passenger.id);
 
+  const sharedRides = await seedSharedRidesCoast(prisma);
+
   console.log("\n=== Songa dev seed ===\n");
   console.log(`Password (all accounts): ${SEED_PASSWORD}\n`);
 
@@ -334,6 +339,11 @@ async function main() {
   console.log(`  Phone: ${PASSENGER.phone}`);
   console.log(`  Email: ${PASSENGER.email}`);
   console.log(`  Role:  passenger\n`);
+
+  console.log("Admin (shared-rides catalog / ops):");
+  console.log(`  Phone: ${SEED_ADMIN.phone}`);
+  console.log(`  Email: ${SEED_ADMIN.email}`);
+  console.log(`  Role:  admin (login with role admin — not registerable)\n`);
 
   console.log("Drivers (log in on driver app / driver role):");
   for (const seed of DRIVERS) {
@@ -346,6 +356,12 @@ async function main() {
   console.log(`  Seats:   ${SAMPLE_SEATS.join(", ")} (seat_selection — airport terminal flow)`);
   console.log("  Flow: Home → enter route → Request ride OR Checkout with seats → pay (dev auto-pay) → dispatch");
   console.log("\nDrivers are seeded ONLINE with GPS near pickup. James/Grace/Faith/Peter are by JKIA; David is in Westlands.\n");
+
+  console.log("Shared rides (coast):", {
+    zones: sharedRides.zoneSlugs,
+    slots: sharedRides.slotCount,
+    demoDepartures: sharedRides.demoDepartures,
+  });
 
   console.log("Seed complete:", {
     passengerId: passenger.id,

@@ -54,6 +54,7 @@ Useful local URLs:
 | `GET /api/health` | Health check |
 | `GET /api/docs` | Swagger UI |
 | `GET /api/openapi.json` | Raw OpenAPI contract |
+| `GET /api/shared-rides/*` | Coast SGR shared vans — see [docs/SHARED_RIDES_API.md](./docs/SHARED_RIDES_API.md) |
 | `/socket.io` | Socket.IO realtime endpoint |
 | `/uploads/*` | Public uploaded files |
 

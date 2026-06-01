@@ -2,7 +2,7 @@
 
 import cuid from "cuid";
 import { OnboardingStatus, Prisma, UserRole, type DriverProfile, type User, type Vehicle } from "@prisma/client";
-import type { Role } from "../lib/auth-role.js";
+import { isPublicRegisterRole, type Role } from "../lib/auth-role.js";
 import { AppError } from "../lib/errors.js";
 import { isEmailIdentifier, normalizeEmail, normalizeLoginIdentifier } from "../lib/identifier.js";
 import { hashPassword, validatePasswordStrength, verifyPassword } from "../lib/password.js";
@@ -73,7 +73,19 @@ export interface MeResult {
 }
 
 function toPrismaRole(role: Role): UserRole {
-  return role === "passenger" ? UserRole.passenger : UserRole.driver;
+  if (role === "passenger") return UserRole.passenger;
+  if (role === "driver") return UserRole.driver;
+  return UserRole.admin;
+}
+
+function assertPublicRegisterRole(role: Role): void {
+  if (!isPublicRegisterRole(role)) {
+    throw new AppError(
+      "FORBIDDEN",
+      403,
+      "Admin accounts cannot be created via registration. Use a seeded admin account.",
+    );
+  }
 }
 
 async function dispatchOtpSms(phone: string, code: string): Promise<void> {
@@ -162,6 +174,7 @@ async function ensureDriverProfile(userId: string): Promise<DriverProfile> {
  * Start registration: store pending credentials and send OTP to verify the phone.
  */
 export async function register(input: RegisterInput): Promise<RegisterResult> {
+  assertPublicRegisterRole(input.role);
   const phone = normalizePhone(input.phone);
   const role = input.role;
   validatePasswordStrength(input.password);
@@ -210,6 +223,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
 export async function confirmRegistration(
   input: ConfirmRegistrationInput,
 ): Promise<ConfirmRegistrationResult> {
+  assertPublicRegisterRole(input.role);
   const phone = normalizePhone(input.phone);
   const role = input.role;
   const redis = getRedis();

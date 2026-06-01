@@ -11,7 +11,8 @@ if (process.env.TEST_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 }
 
-execSync("npx prisma db push --skip-generate", { stdio: "pipe", env: process.env });
+// Must generate client so `prisma.sharedDeparture*` types exist (do not use --skip-generate).
+execSync("npx prisma db push", { stdio: "pipe", env: process.env });
 
 const { prisma } = await import("../src/lib/prisma.js");
 const { resetRedisForTest, _setRedis } = await import("../src/lib/redis.js");
@@ -22,6 +23,10 @@ async function resetDatabase(): Promise<void> {
   // (and writing) into the next test's freshly-reset database.
   clearAllOfferTimeouts();
   await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS=0");
+  await prisma.sharedDepartureSeat.deleteMany();
+  await prisma.sharedDeparture.deleteMany();
+  await prisma.sgrScheduleSlot.deleteMany();
+  await prisma.corridorLocation.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.device.deleteMany();
   await prisma.walletTransaction.deleteMany();

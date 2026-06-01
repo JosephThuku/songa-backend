@@ -13,13 +13,14 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:shared-rides": "tsx prisma/seed-shared-rides.ts",
     "db:push": "prisma db push",
     "db:sync": "prisma db push && prisma generate",
     "db:fix-auth": "tsx scripts/apply-auth-columns.ts && prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "lint": "npm run typecheck",
+    "typecheck": "prisma generate && tsc --noEmit"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
