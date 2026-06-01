@@ -11,6 +11,7 @@ import placesRouter from "./places.js";
 import ridesRouter from "./rides.js";
 import mpesaRouter from "./mpesa.js";
 import passengersRouter from "./passengers.js";
+import sharedRidesRouter from "./shared-rides.js";
 
 const router: Router = Router();
 
@@ -27,6 +28,7 @@ router.use("/devices", devicesRouter);
 router.use("/places", placesRouter);
 router.use("/mpesa", mpesaRouter);
 router.use("/passengers", passengersRouter);
+router.use("/shared-rides", sharedRidesRouter);
 
 // Docs surface — Swagger UI at /api/docs, raw spec at /api/openapi.json.
 router.use("/", docsRouter);

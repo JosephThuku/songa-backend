@@ -1,0 +1,99 @@
+# Shared rides — Phase 1 checklist
+
+API prefix: **`/api/shared-rides`** (admin later: **`/api/admin/shared-rides`**).
+
+Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
+
+---
+
+## Phase 1 — Catalog + browse (current sprint)
+
+- [x] Prisma: `CorridorLocation`, `SgrScheduleSlot`, `SharedDeparture`, `SharedDepartureSeat`
+- [x] Coast seeder: SGR Miritini + Mtwapa, Nyali, Bamburi, Mombasa CBD, **Diani** (8 slots × 5 zones = 40 slots)
+- [x] Demo departures in dev seed (Nyali→SGR, SGR→Mtwapa)
+- [x] `GET /api/shared-rides/corridor-locations`
+- [x] `GET /api/shared-rides/corridor-locations/:slug`
+- [x] `GET /api/shared-rides/sgr-schedule-slots`
+- [x] `GET /api/shared-rides/suggestions` (Madaraka-aware, lead time + arrival grace)
+- [x] `GET /api/shared-rides/departures/search` (+ `suggestedTripRequests` when empty)
+- [ ] Admin CRUD: `PATCH/POST/DELETE /api/admin/shared-rides/corridor-locations`
+- [ ] Admin CRUD: `PATCH/POST/DELETE /api/admin/shared-rides/sgr-schedule-slots`
+- [ ] `POST /api/shared-rides/corridor-locations/resolve` (GPS → zone)
+- [ ] Mobile: SGR entry → shared flow (replace mock `ride-share.tsx`)
+- [ ] Mobile: empty search → one-tap suggestion → `trip-requests` (Phase 2)
+
+---
+
+## Phase 2 — Passenger intent
+
+- [ ] Prisma: `SharedTripRequest` (+ reservations)
+- [ ] `POST /api/shared-rides/trip-requests`
+- [ ] `GET /api/shared-rides/trip-requests/mine`
+- [ ] Wire “Request van for [slot]” (uses `suggestedTripRequests` payload)
+
+---
+
+## Phase 3 — Seats + prepay
+
+- [ ] `POST /api/shared-rides/departures/:id/seats/reserve|release`
+- [ ] `POST /api/shared-rides/departures/:id/bookings` + M-Pesa pay
+- [ ] `Booking.departureId` / `shared_sgr` mode
+- [ ] Mobile seat picker + checkout
+
+---
+
+## Phase 4 — Driver supply
+
+- [ ] `GET /api/shared-rides/trip-requests` (driver board)
+- [ ] `POST /api/shared-rides/trip-requests/:id/join`
+- [ ] `POST /api/shared-rides/departures` (driver publish)
+
+---
+
+## Phase 5 — Polish
+
+- [ ] Private ride CTA → existing `/api/rides/*`
+- [ ] Notifications / SMS on match
+- [x] OpenAPI docs for shared-rides routes (`src/schemas/shared-rides.schema.ts`, tag **Shared rides**)
+- [x] Integrator markdown [`SHARED_RIDES_API.md`](./SHARED_RIDES_API.md)
+
+---
+
+## TypeScript / Prisma client
+
+Enums and DTOs live in **`src/domain/shared-rides.ts`** (not imported from `@prisma/client` in app code).  
+After any `schema.prisma` change run:
+
+```bash
+npx prisma generate
+```
+
+`npm run typecheck` runs `prisma generate` first automatically.
+
+## Seed commands
+
+```bash
+cd songa-backend
+npx prisma db push
+npx prisma generate
+npm run db:seed:shared-rides   # corridors + slots only
+npm run db:seed                # full dev seed (users + shared rides)
+```
+
+Corridor coordinates are defined in **`prisma/seeds/coast-corridor-locations.ts`** (SGR Miritini uses Wikipedia terminus coords).
+
+## Quick API smoke (after login)
+
+```bash
+# List zones
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$API/api/shared-rides/corridor-locations" | jq .
+
+# Suggestions Nyali → SGR
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$API/api/shared-rides/suggestions?direction=to_sgr&corridorLocationSlug=nyali" | jq .
+
+# Departures + suggestions
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$API/api/shared-rides/departures/search?direction=to_sgr&corridorLocationSlug=nyali" | jq .
+```

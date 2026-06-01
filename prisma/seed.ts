@@ -5,6 +5,7 @@ import { PrismaClient, UserRole, OnboardingStatus } from "@prisma/client";
 import cuid from "cuid";
 import { indexDriverLocation } from "../src/lib/driver-geo.js";
 import { hashPassword } from "../src/lib/password.js";
+import { seedSharedRidesCoast } from "./seeds/shared-rides-coast.js";
 
 const prisma = new PrismaClient();
 
@@ -318,7 +319,7 @@ async function main() {
   const passwordHash = await hashPassword(SEED_PASSWORD);
   const passenger = await upsertPassenger(passwordHash);
 
-  const drivers = [];
+  const drivers: Awaited<ReturnType<typeof upsertDriver>>[] = [];
   for (const seed of DRIVERS) {
     const row = await upsertDriver(seed, passwordHash);
     await seedDriverWallet(row.user.id);
@@ -326,6 +327,8 @@ async function main() {
   }
 
   await seedPassengerNotifications(passenger.id);
+
+  const sharedRides = await seedSharedRidesCoast(prisma);
 
   console.log("\n=== Songa dev seed ===\n");
   console.log(`Password (all accounts): ${SEED_PASSWORD}\n`);
@@ -346,6 +349,12 @@ async function main() {
   console.log(`  Seats:   ${SAMPLE_SEATS.join(", ")} (seat_selection — airport terminal flow)`);
   console.log("  Flow: Home → enter route → Request ride OR Checkout with seats → pay (dev auto-pay) → dispatch");
   console.log("\nDrivers are seeded ONLINE with GPS near pickup. James/Grace/Faith/Peter are by JKIA; David is in Westlands.\n");
+
+  console.log("Shared rides (coast):", {
+    zones: sharedRides.zoneSlugs,
+    slots: sharedRides.slotCount,
+    demoDepartures: sharedRides.demoDepartures,
+  });
 
   console.log("Seed complete:", {
     passengerId: passenger.id,
