@@ -35,8 +35,9 @@ async function main() {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      reasonId: "changed_mind",
-      reasonLabel: "Changed mind",
+      reasonId: "plans_changed",
+      reasonLabel: "My plans changed",
+      detail: null,
     }),
   });
   if (!cancelRes.ok) {

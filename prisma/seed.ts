@@ -8,24 +8,16 @@ import { hashPassword } from "../src/lib/password.js";
 import { seedAdminUser, SEED_ADMIN } from "./seeds/admin-user.js";
 import { seedSharedRidesCoast } from "./seeds/shared-rides-coast.js";
 
+import {
+  SAMPLE_DROPOFF,
+  SAMPLE_PICKUP,
+  SAMPLE_SEATS,
+  SEED_PASSWORD,
+} from "./seed-constants.js";
+
 const prisma = new PrismaClient();
 
-export const SEED_PASSWORD = "SongaDev1";
-
-/** Use these exact labels so checkout uses seat_selection (JKIA terminal flow). */
-export const SAMPLE_PICKUP = {
-  label: "JKIA Terminal 1A",
-  lat: -1.3192,
-  lng: 36.9278,
-} as const;
-
-export const SAMPLE_DROPOFF = {
-  label: "Westlands",
-  lat: -1.2674,
-  lng: 36.807,
-} as const;
-
-export const SAMPLE_SEATS = [3, 4] as const;
+export { SAMPLE_DROPOFF, SAMPLE_PICKUP, SAMPLE_SEATS, SEED_PASSWORD };
 
 type DriverSeed = {
   phone: string;

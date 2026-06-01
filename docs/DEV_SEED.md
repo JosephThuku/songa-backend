@@ -85,6 +85,17 @@ Use two browser windows (or normal + private): **passenger** `+254712000001` and
 
 Optional: in `__DEV__` builds, the driver overlay shows **GPS at pickup** / **GPS at dropoff** to fake location and refresh ETA (phase may move to `driver_arriving` near pickup).
 
+### Automated map animation (backend script)
+
+With the API running and two Expo web tabs logged in (passenger + driver above):
+
+```bash
+cd songa-backend
+npm run simulate:ride
+```
+
+This requests JKIA → Westlands, accepts as James, posts GPS every ~2.5s from far away → pickup (`driver_en_route` → `driver_arriving`) → dropoff → complete. Tune speed with `STEP_MS=1500`.
+
 ## Notes
 
 - Re-run `npm run db:seed` anytime; it is idempotent (upserts by phone/registration).
