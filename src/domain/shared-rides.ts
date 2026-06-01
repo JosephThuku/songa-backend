@@ -57,6 +57,13 @@ export const SharedTripRequestReservationStatus = {
 export type SharedTripRequestReservationStatus =
   (typeof SharedTripRequestReservationStatus)[keyof typeof SharedTripRequestReservationStatus];
 
+export const BookingProduct = {
+  on_demand: "on_demand",
+  shared_sgr: "shared_sgr",
+} as const;
+
+export type BookingProduct = (typeof BookingProduct)[keyof typeof BookingProduct];
+
 /** Minimal corridor point for zone resolve / maps. */
 export type CorridorLocationRef = {
   id: string;

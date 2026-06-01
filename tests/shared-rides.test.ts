@@ -23,6 +23,7 @@ describe("Shared rides API (Phase 1)", () => {
   it("registers OpenAPI paths under /api/shared-rides", () => {
     const doc = buildOpenApiDocument();
     expect(doc.paths?.["/api/shared-rides/corridor-locations"]).toBeDefined();
+    expect(doc.paths?.["/api/shared-rides/corridor-locations/resolve"]).toBeDefined();
     expect(doc.paths?.["/api/shared-rides/suggestions"]).toBeDefined();
     expect(doc.paths?.["/api/shared-rides/departures/search"]).toBeDefined();
   });
@@ -56,6 +57,22 @@ describe("Shared rides API (Phase 1)", () => {
     const sgr = res.body.locations.find((l: { slug: string }) => l.slug === "sgr-miritini");
     expect(sgr.lat).toBeCloseTo(-4.02178, 4);
     expect(sgr.lng).toBeCloseTo(39.57947, 4);
+  });
+
+  it("resolves GPS to Nyali corridor zone", async () => {
+    const app = buildTestApp();
+    await seedCoastCatalog();
+    const token = await login(app);
+
+    const res = await request(app)
+      .post("/api/shared-rides/corridor-locations/resolve")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ lat: -4.0207, lng: 39.7199 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.location.slug).toBe("nyali");
+    expect(res.body.insideRadius).toBe(true);
+    expect(res.body.distanceM).toBeLessThan(100);
   });
 
   it("returns 404 for unknown corridor slug", async () => {

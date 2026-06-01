@@ -4,6 +4,7 @@ If the editor shows errors like:
 
 ```text
 Property 'sgrScheduleSlot' does not exist on type 'PrismaClient'
+Property 'sharedDepartureId' does not exist on type '{ status: BookingStatus; id: string; ... }'
 Namespace 'Prisma' has no exported member 'CorridorLocationSelect'
 ```
 

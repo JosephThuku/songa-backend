@@ -18,7 +18,7 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 - [x] `GET /api/shared-rides/departures/search` (+ `suggestedTripRequests` when empty)
 - [x] Admin CRUD: `POST/PATCH/DELETE /api/admin/shared-rides/corridor-locations`
 - [x] Admin CRUD: `POST/PATCH/DELETE /api/admin/shared-rides/sgr-schedule-slots`
-- [ ] `POST /api/shared-rides/corridor-locations/resolve` (GPS → zone)
+- [x] `POST /api/shared-rides/corridor-locations/resolve` (GPS → zone)
 - [ ] Mobile: SGR entry → shared flow (replace mock `ride-share.tsx`)
 - [ ] Mobile: empty search → one-tap suggestion → `trip-requests` (Phase 2)
 
@@ -35,9 +35,10 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
 ## Phase 3 — Seats + prepay
 
-- [ ] `POST /api/shared-rides/departures/:id/seats/reserve|release`
-- [ ] `POST /api/shared-rides/departures/:id/bookings` + M-Pesa pay
-- [ ] `Booking.departureId` / `shared_sgr` mode
+- [x] `GET /api/shared-rides/departures/:id` (seat map)
+- [x] `POST /api/shared-rides/departures/:id/seats/reserve|release`
+- [x] `POST /api/shared-rides/departures/:id/bookings` + pay via `POST /api/bookings/:id/pay`
+- [x] `Booking.sharedDepartureId` / `product: shared_sgr`
 - [ ] Mobile seat picker + checkout
 
 ---

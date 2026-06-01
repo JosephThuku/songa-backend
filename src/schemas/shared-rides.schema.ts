@@ -53,6 +53,27 @@ export const CorridorLocationQuerySchema = z.object({
   slug: z.string().min(1).optional(),
 });
 
+export const ResolveCorridorLocationSchema = registry.register(
+  "ResolveCorridorLocation",
+  z
+    .object({
+      lat: z.number().min(-90).max(90).openapi({ example: -4.0207 }),
+      lng: z.number().min(-180).max(180).openapi({ example: 39.7199 }),
+    })
+    .strict(),
+);
+
+export const ResolveCorridorLocationResponseSchema = registry.register(
+  "ResolveCorridorLocationResponse",
+  z.object({
+    location: CorridorLocationDtoSchema,
+    distanceM: z.number().int().openapi({ description: "Distance from GPS to zone center (metres)." }),
+    insideRadius: z
+      .boolean()
+      .openapi({ description: "True when GPS is within the zone `radiusM` circle." }),
+  }),
+);
+
 export const ScheduleSlotsQuerySchema = z.object({
   direction: SharedRideDirectionSchema.optional().openapi({
     description: "`to_sgr` = neighborhood → SGR Miritini; `from_sgr` = SGR → neighborhood.",
@@ -251,6 +272,102 @@ export const MyTripRequestsResponseSchema = registry.register(
   }),
 );
 
+export const DepartureIdParamsSchema = z.object({
+  departureId: z.string().trim().min(1).max(64),
+});
+
+const DepartureSeatDtoSchema = z.object({
+  seatNumber: z.number().int(),
+  status: z.enum(["available", "reserved", "paid", "disabled"]),
+  isMine: z.boolean(),
+  row: z.number().int().nullable(),
+  col: z.number().int().nullable(),
+});
+
+export const SharedDepartureDetailSchema = registry.register(
+  "SharedDepartureDetail",
+  z.object({
+    id: z.string(),
+    departureAt: eatDatetimeSchema,
+    pricePerSeat: z.number().int(),
+    capacity: z.number().int(),
+    status: z.string(),
+    routeLabel: z.string(),
+    pickupLocation: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+    dropoffLocation: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+    seats: z.array(DepartureSeatDtoSchema),
+  }),
+);
+
+export const SharedDepartureDetailResponseSchema = registry.register(
+  "SharedDepartureDetailResponse",
+  z.object({ departure: SharedDepartureDetailSchema }),
+);
+
+export const ReserveDepartureSeatsSchema = registry.register(
+  "ReserveDepartureSeats",
+  z
+    .object({
+      seatNumbers: z
+        .array(z.number().int().min(1))
+        .min(1)
+        .max(6)
+        .openapi({ example: [3, 4], description: "1-based seat numbers on this van." }),
+    })
+    .strict(),
+);
+
+export const ReleaseDepartureSeatsSchema = registry.register(
+  "ReleaseDepartureSeats",
+  z
+    .object({
+      seatNumbers: z.array(z.number().int().min(1)).min(1).max(6).optional(),
+    })
+    .strict(),
+);
+
+export const ReserveDepartureSeatsResponseSchema = registry.register(
+  "ReserveDepartureSeatsResponse",
+  z.object({
+    departure: SharedDepartureDetailSchema,
+    reservedUntil: eatDatetimeSchema.openapi({
+      description: "Hold expiry (EAT). Re-reserve or create booking before this time.",
+    }),
+  }),
+);
+
+export const CreateSharedDepartureBookingSchema = registry.register(
+  "CreateSharedDepartureBooking",
+  z
+    .object({
+      seatNumbers: z.array(z.number().int().min(1)).min(1).max(6),
+    })
+    .strict(),
+);
+
+export const SharedDepartureBookingDtoSchema = registry.register(
+  "SharedDepartureBooking",
+  z.object({
+    id: z.string().openapi({ example: "BKG-clxyz" }),
+    product: z.literal("shared_sgr"),
+    sharedDepartureId: z.string(),
+    status: z.enum(["pending_payment", "paid", "failed", "cancelled"]),
+    seats: z.array(z.number().int()),
+    subtotal: z.number().int(),
+    platformFee: z.number().int(),
+    total: z.number().int(),
+    currency: z.string(),
+    pickup: z.object({ label: z.string(), lat: z.number(), lng: z.number() }),
+    dropoff: z.object({ label: z.string(), lat: z.number(), lng: z.number() }),
+    createdAt: z.string().datetime(),
+  }),
+);
+
+export const CreateSharedDepartureBookingResponseSchema = registry.register(
+  "CreateSharedDepartureBookingResponse",
+  z.object({ booking: SharedDepartureBookingDtoSchema }),
+);
+
 registry.registerPath({
   method: "get",
   path: "/api/shared-rides/corridor-locations",
@@ -265,6 +382,31 @@ registry.registerPath({
       description: "Catalog of corridor locations.",
       content: { "application/json": { schema: CorridorLocationsResponseSchema } },
     },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/corridor-locations/resolve",
+  tags: ["Shared rides"],
+  summary: "Resolve GPS coordinates to a corridor zone",
+  description:
+    "Returns the nearest active zone. When the point lies inside multiple radii, the closest center wins. " +
+    "`insideRadius` is false when GPS is outside all zone circles (still returns nearest for UI hints).",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: ResolveCorridorLocationSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Resolved zone.",
+      content: { "application/json": { schema: ResolveCorridorLocationResponseSchema } },
+    },
+    ...invalidInputResponse,
     ...authResponses,
   },
 });
@@ -398,6 +540,113 @@ registry.registerPath({
       description: "Passenger trip requests.",
       content: { "application/json": { schema: MyTripRequestsResponseSchema } },
     },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/shared-rides/departures/{departureId}",
+  tags: ["Shared rides"],
+  summary: "Departure detail with seat map",
+  description:
+    "Scheduled van, route, and per-seat status. `isMine` is true when you hold a non-expired reservation.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { params: DepartureIdParamsSchema },
+  responses: {
+    200: {
+      description: "Departure and seats.",
+      content: { "application/json": { schema: SharedDepartureDetailResponseSchema } },
+    },
+    404: {
+      description: "Not found or not bookable (`DEPARTURE_NOT_FOUND`, `DEPARTURE_CLOSED`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/departures/{departureId}/seats/reserve",
+  tags: ["Shared rides"],
+  summary: "Hold seats before checkout",
+  description:
+    "Sets seats to `reserved` for `SHARED_RIDES_SEAT_RESERVE_MIN` minutes (default 15). " +
+    "Paid or another passenger's active hold returns `SEAT_NOT_AVAILABLE`.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: DepartureIdParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: ReserveDepartureSeatsSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Seats held.",
+      content: { "application/json": { schema: ReserveDepartureSeatsResponseSchema } },
+    },
+    409: {
+      description: "Seat unavailable (`SEAT_NOT_AVAILABLE`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/departures/{departureId}/seats/release",
+  tags: ["Shared rides"],
+  summary: "Release held seats",
+  description: "Clears your reservation holds. Omit `seatNumbers` to release all seats you hold on this departure.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: DepartureIdParamsSchema,
+    body: {
+      content: { "application/json": { schema: ReleaseDepartureSeatsSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated seat map.",
+      content: { "application/json": { schema: SharedDepartureDetailResponseSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/departures/{departureId}/bookings",
+  tags: ["Shared rides"],
+  summary: "Create shared departure booking",
+  description:
+    "Creates a `shared_sgr` booking for held seats. Pay with `POST /api/bookings/{id}/pay` (same as on-demand). " +
+    "On successful payment, linked seats become `paid`.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: DepartureIdParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: CreateSharedDepartureBookingSchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Booking created (`pending_payment`).",
+      content: { "application/json": { schema: CreateSharedDepartureBookingResponseSchema } },
+    },
+    409: {
+      description:
+        "Seats not held, unpaid booking pending, or departure closed (`SEATS_NOT_HELD`, `UNPAID_BOOKING_PENDING`, `DEPARTURE_CLOSED`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...invalidInputResponse,
     ...authResponses,
   },
 });
