@@ -1,6 +1,11 @@
 import type { SgrScheduleSlotRef, SharedRideDirection } from "../../domain/shared-rides.js";
 import { sharedRidesConfig } from "../../lib/shared-rides-config.js";
-import { getNairobiParts, nairobiLocalToUtc, type NairobiParts } from "../../lib/nairobi-time.js";
+import {
+  getNairobiParts,
+  nairobiLocalToUtc,
+  toNairobiIso,
+  type NairobiParts,
+} from "../../lib/nairobi-time.js";
 import { slotDetail, slotHeadline, trainServiceLabel } from "./slot-labels.js";
 
 export type SuggestedTripRequestDto = {
@@ -88,7 +93,7 @@ function toSuggestion(
     headline: slotHeadline(direction, slot.trainService, slot.sgrEventTime),
     detail: slotDetail(zone.name, direction, slot.vanDepartureTime, slot.suggestedPricePerSeat),
     trainLabel: `${trainServiceLabel(slot.trainService)} · ${direction === "to_sgr" ? "departs Miritini" : "arrives Miritini"} ${slot.sgrEventTime}`,
-    vanDepartureAt: vanAt.toISOString(),
+    vanDepartureAt: toNairobiIso(vanAt),
     pricePerSeat: slot.suggestedPricePerSeat,
     seatsRequested: 1,
   };

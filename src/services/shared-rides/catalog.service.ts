@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type { SgrScheduleSlotRef } from "../../domain/shared-rides.js";
+import { toNairobiIso } from "../../lib/nairobi-time.js";
 import { prisma } from "../../lib/prisma.js";
 import { buildSuggestionsFromSlots } from "./suggestions.service.js";
 
@@ -166,7 +167,7 @@ export async function searchDepartures(filters: {
     const capacity = d.capacity;
     return {
       id: d.id,
-      departureAt: d.departureAt.toISOString(),
+      departureAt: toNairobiIso(d.departureAt),
       pricePerSeat: d.pricePerSeat,
       capacity,
       bookedSeatsCount: booked,

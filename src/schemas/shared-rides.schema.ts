@@ -26,6 +26,9 @@ const invalidInputResponse = {
 
 export const SharedRideDirectionSchema = z.enum(["to_sgr", "from_sgr"]);
 
+/** ISO 8601 with `Z` or fixed offset (EAT responses use `+03:00`). */
+const eatDatetimeSchema = z.string().datetime({ offset: true });
+
 const CorridorLocationDtoSchema = z.object({
   id: z.string().openapi({ example: "clxyz123" }),
   slug: z.string().openapi({ example: "nyali" }),
@@ -82,6 +85,34 @@ export const DeparturesSearchQuerySchema = z.object({
     .openapi({ example: "2026-06-02", description: "ISO date (Nairobi calendar day)." }),
 });
 
+/** Body for one-tap intent — mirrors `suggestedTripRequests` items from GET suggestions/search. */
+export const CreateTripRequestSchema = registry.register(
+  "CreateTripRequest",
+  z
+    .object({
+      sgrScheduleSlotId: z.string().min(1),
+      direction: SharedRideDirectionSchema,
+      corridorLocationId: z.string().min(1),
+      departureDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .openapi({ example: "2026-06-02" }),
+      vanDepartureAt: eatDatetimeSchema.openapi({
+          example: "2026-06-02T06:00:00+03:00",
+          description:
+            "Van departure instant (EAT, ISO 8601 with +03:00). Copy from suggestions; Z is also accepted.",
+        }),
+      seatsRequested: z.number().int().min(1).max(6).optional().default(1),
+      notes: z.string().max(500).optional(),
+      pickupNote: z
+        .string()
+        .max(200)
+        .optional()
+        .openapi({ description: "Neighborhood pickup landmark or pin note for the driver." }),
+    })
+    .strict(),
+);
+
 const SgrScheduleSlotDtoSchema = z.object({
   id: z.string(),
   direction: SharedRideDirectionSchema,
@@ -103,14 +134,20 @@ const SuggestedTripRequestDtoSchema = z.object({
   headline: z.string().openapi({ example: "Catch the 8:00 AM train to Nairobi" }),
   detail: z.string(),
   trainLabel: z.string(),
-  vanDepartureAt: z.string().datetime(),
+  vanDepartureAt: eatDatetimeSchema.openapi({
+    example: "2026-06-02T06:00:00+03:00",
+    description: "Van departure (EAT, +03:00).",
+  }),
   pricePerSeat: z.number().int(),
   seatsRequested: z.number().int().openapi({ example: 1 }),
 });
 
 const SharedDepartureSearchItemSchema = z.object({
   id: z.string(),
-  departureAt: z.string().datetime(),
+  departureAt: eatDatetimeSchema.openapi({
+    example: "2026-06-02T06:00:00+03:00",
+    description: "Scheduled van departure (EAT, +03:00).",
+  }),
   pricePerSeat: z.number().int(),
   capacity: z.number().int(),
   bookedSeatsCount: z.number().int(),
@@ -161,6 +198,56 @@ export const SharedDeparturesSearchResponseSchema = registry.register(
     otherDepartures: z.array(SharedDepartureSearchItemSchema),
     locations: z.array(CorridorLocationDtoSchema),
     suggestedTripRequests: z.array(SuggestedTripRequestDtoSchema),
+  }),
+);
+
+const TripRequestReservationDtoSchema = z.object({
+  id: z.string(),
+  seatsRequested: z.number().int(),
+  status: z.enum(["active", "cancelled"]),
+  pickupNote: z.string().nullable(),
+});
+
+const TripRequestDtoSchema = z.object({
+  id: z.string(),
+  status: z.enum(["open", "matched", "cancelled", "expired"]),
+  poolSeatsTotal: z.number().int(),
+  requestedDepartureAt: eatDatetimeSchema.openapi({
+    example: "2026-06-02T06:00:00+03:00",
+    description: "Pooled van departure (EAT, +03:00).",
+  }),
+  departureDate: z.string(),
+  direction: SharedRideDirectionSchema,
+  corridorLocation: z.object({
+    id: z.string(),
+    slug: z.string(),
+    name: z.string(),
+  }),
+  sgrScheduleSlotId: z.string(),
+  headline: z.string(),
+  detail: z.string(),
+  trainLabel: z.string(),
+  pricePerSeat: z.number().int(),
+  notes: z.string().nullable(),
+});
+
+export const CreateTripRequestResponseSchema = registry.register(
+  "CreateTripRequestResponse",
+  z.object({
+    tripRequest: TripRequestDtoSchema,
+    reservation: TripRequestReservationDtoSchema,
+  }),
+);
+
+export const MyTripRequestsResponseSchema = registry.register(
+  "MyTripRequestsResponse",
+  z.object({
+    items: z.array(
+      z.object({
+        tripRequest: TripRequestDtoSchema,
+        reservation: TripRequestReservationDtoSchema,
+      }),
+    ),
   }),
 );
 
@@ -262,6 +349,55 @@ registry.registerPath({
       content: { "application/json": { schema: SharedDeparturesSearchResponseSchema } },
     },
     ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/trip-requests",
+  tags: ["Shared rides"],
+  summary: "Create or join pooled trip request",
+  description:
+    "Passenger intent for a Madaraka slot. Reuses an open pool for the same slot + `vanDepartureAt`, " +
+    "or creates one. Send the same fields as `suggestedTripRequests` from GET suggestions/search.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: CreateTripRequestSchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Reservation created or updated.",
+      content: { "application/json": { schema: CreateTripRequestResponseSchema } },
+    },
+    400: {
+      description:
+        "Invalid input, corridor mismatch, departure in past, or slot not bookable (`INVALID_INPUT`, `CORRIDOR_MISMATCH`, `DEPARTURE_IN_PAST`, `SLOT_NOT_BOOKABLE`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    404: {
+      description: "Schedule slot not found (`SGR_SLOT_NOT_FOUND`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/shared-rides/trip-requests/mine",
+  tags: ["Shared rides"],
+  summary: "List my active trip requests",
+  description: "Active reservations on open or matched pools with future van departure.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  responses: {
+    200: {
+      description: "Passenger trip requests.",
+      content: { "application/json": { schema: MyTripRequestsResponseSchema } },
+    },
     ...authResponses,
   },
 });

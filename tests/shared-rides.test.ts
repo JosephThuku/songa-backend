@@ -128,6 +128,7 @@ describe("Shared rides API (Phase 1)", () => {
         pricePerSeat: expect.any(Number),
         sgrScheduleSlotId: expect.any(String),
       });
+      expect(first.vanDepartureAt).toMatch(/\+03:00$/);
     }
   });
 

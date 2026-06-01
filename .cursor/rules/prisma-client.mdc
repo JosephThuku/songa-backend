@@ -1,0 +1,15 @@
+---
+description: After Prisma schema changes, regenerate client and avoid stale IDE types
+globs:
+  - prisma/schema.prisma
+  - src/**/*.ts
+---
+
+# Prisma client must stay in sync
+
+When editing `prisma/schema.prisma` or adding `prisma.<model>` usage:
+
+1. Run from **songa-backend/**: `npm run db:sync` (not only `db push --skip-generate`).
+2. If the user sees `Property 'xyz' does not exist on PrismaClient`, run `npm run db:generate` or `npm run db:sync` — do not "fix" by removing valid Prisma calls.
+3. Prefer domain types in `src/domain/` for enums; use `shared-rides-prisma.ts` patterns instead of `satisfies Prisma.*Select` when IDE churn is likely.
+4. See [docs/PRISMA.md](../../docs/PRISMA.md).
