@@ -2,6 +2,12 @@ import type { Payment, Booking, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
 
+const bookingPaymentSelect = {
+  id: true,
+  status: true,
+  sharedDepartureId: true,
+} satisfies Prisma.BookingSelect;
+
 /** Mark booking paid after successful M-Pesa (or dev) payment — idempotent. */
 export async function completeBookingPayment(
   booking: Booking,
@@ -10,7 +16,10 @@ export async function completeBookingPayment(
   gatewayMerge: Record<string, unknown> = {},
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const freshBooking = await tx.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    const freshBooking = await tx.booking.findUniqueOrThrow({
+      where: { id: booking.id },
+      select: bookingPaymentSelect,
+    });
     const freshPayment = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
 
     if (freshPayment.bookingId !== freshBooking.id) {
@@ -47,5 +56,15 @@ export async function completeBookingPayment(
       where: { id: freshBooking.id },
       data: { status: "paid" },
     });
+
+    if (freshBooking.sharedDepartureId) {
+      await tx.sharedDepartureSeat.updateMany({
+        where: { bookingId: freshBooking.id },
+        data: {
+          status: "paid",
+          expiresAt: null,
+        },
+      });
+    }
   });
 }

@@ -1,5 +1,5 @@
 /**
- * Shared SGR / coast corridor (Phase 1–2).
+ * Shared SGR / coast corridor (Phase 1–3).
  * @see docs/SHARED_RIDES_API.md — integrator guide
  * @see src/schemas/shared-rides.schema.ts — Zod + OpenAPI (`/api/docs` tag "Shared rides")
  */
@@ -10,16 +10,28 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { requireRole } from "../middleware/require-role.js";
 import {
   CorridorLocationSlugParamsSchema,
+  CreateSharedDepartureBookingSchema,
   CreateTripRequestSchema,
+  DepartureIdParamsSchema,
   DeparturesSearchQuerySchema,
+  ReleaseDepartureSeatsSchema,
+  ReserveDepartureSeatsSchema,
+  ResolveCorridorLocationSchema,
   ScheduleSlotsQuerySchema,
   SuggestionsQuerySchema,
 } from "../schemas/shared-rides.schema.js";
+import { createSharedDepartureBooking } from "../services/shared-rides/departure-booking.service.js";
+import {
+  getDepartureDetail,
+  releaseDepartureSeats,
+  reserveDepartureSeats,
+} from "../services/shared-rides/departure-seats.service.js";
 import {
   getCorridorLocationBySlug,
   getSuggestions,
   listCorridorLocations,
   listScheduleSlots,
+  resolveCorridorLocationFromGps,
   searchDepartures,
 } from "../services/shared-rides/catalog.service.js";
 import { createTripRequest, listMyTripRequests } from "../services/shared-rides/trip-request.service.js";
@@ -33,6 +45,15 @@ router.get(
   asyncHandler(async (_req, res) => {
     const locations = await listCorridorLocations();
     res.status(200).json({ locations });
+  }),
+);
+
+router.post(
+  "/corridor-locations/resolve",
+  asyncHandler(async (req, res) => {
+    const body = ResolveCorridorLocationSchema.parse(req.body);
+    const result = await resolveCorridorLocationFromGps(body.lat, body.lng);
+    res.status(200).json(result);
   }),
 );
 
@@ -101,6 +122,53 @@ router.get(
     const user = passengerOrThrow(req);
     const result = await listMyTripRequests(user.id);
     res.status(200).json(result);
+  }),
+);
+
+router.get(
+  "/departures/:departureId",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const result = await getDepartureDetail(departureId, user.id);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/seats/reserve",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = ReserveDepartureSeatsSchema.parse(req.body);
+    const result = await reserveDepartureSeats(departureId, user.id, body.seatNumbers);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/seats/release",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = ReleaseDepartureSeatsSchema.parse(req.body ?? {});
+    const result = await releaseDepartureSeats(departureId, user.id, body.seatNumbers);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/bookings",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = CreateSharedDepartureBookingSchema.parse(req.body);
+    const result = await createSharedDepartureBooking(departureId, user.id, body);
+    res.status(201).json(result);
   }),
 );
 

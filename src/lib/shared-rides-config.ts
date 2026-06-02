@@ -11,4 +11,6 @@ export const sharedRidesConfig = {
   fromSgrGraceMinutes: envInt("SHARED_RIDES_FROM_SGR_GRACE_MIN", 45),
   fromSgrLookaheadHours: envInt("SHARED_RIDES_FROM_SGR_LOOKAHEAD_H", 6),
   maxSuggestions: envInt("SHARED_RIDES_MAX_SUGGESTIONS", 2),
+  /** Hold on reserved seats before payment (minutes). */
+  seatReserveMinutes: envInt("SHARED_RIDES_SEAT_RESERVE_MIN", 15),
 } as const;

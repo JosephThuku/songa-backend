@@ -24,6 +24,8 @@ Examples that return **400**: missing `direction` on `/suggestions`, invalid `da
 
 **Code:** Routes [`src/routes/shared-rides.ts`](../src/routes/shared-rides.ts) · schemas [`src/schemas/shared-rides.schema.ts`](../src/schemas/shared-rides.schema.ts).
 
+**Mobile:** User flows, screen map, and route status (live vs upcoming) → **[SHARED_RIDES_MOBILE_FLOW.md](./SHARED_RIDES_MOBILE_FLOW.md)**.
+
 ---
 
 ## Endpoints (Phase 1)
@@ -31,6 +33,7 @@ Examples that return **400**: missing `direction` on `/suggestions`, invalid `da
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/shared-rides/corridor-locations` | List zones + SGR Miritini |
+| `POST` | `/api/shared-rides/corridor-locations/resolve` | GPS → nearest zone |
 | `GET` | `/api/shared-rides/corridor-locations/{slug}` | One zone by slug |
 | `GET` | `/api/shared-rides/sgr-schedule-slots` | Full timetable for a zone |
 | `GET` | `/api/shared-rides/suggestions` | Next 1–2 bookable slots (time-aware) |
@@ -62,6 +65,26 @@ Examples that return **400**: missing `direction` on `/suggestions`, invalid `da
 GET /api/shared-rides/corridor-locations
 Authorization: Bearer <token>
 ```
+
+**GPS resolve** (mobile zone picker):
+
+```http
+POST /api/shared-rides/corridor-locations/resolve
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "lat": -4.0207, "lng": 39.7199 }
+```
+
+```json
+{
+  "location": { "id": "…", "slug": "nyali", "name": "Nyali", "lat": -4.0207, "lng": 39.7199, "radiusM": 3500, "sortOrder": 20 },
+  "distanceM": 0,
+  "insideRadius": true
+}
+```
+
+When GPS is outside every zone circle, `insideRadius` is `false` but `location` is still the nearest center (for “near Nyali” UI).
 
 ```json
 {
@@ -202,10 +225,44 @@ Returns `{ items: [{ tripRequest, reservation }] }` for active reservations on f
 
 ---
 
+## Phase 3 — Seats + prepay
+
+### `GET /api/shared-rides/departures/{departureId}`
+
+Seat map for a scheduled van (`status`, `isMine`, optional `row`/`col`). Demo id after seed: `dep_seed_nyali_sgr_morning`.
+
+### `POST /api/shared-rides/departures/{departureId}/seats/reserve`
+
+```json
+{ "seatNumbers": [3, 4] }
+```
+
+Holds seats for `SHARED_RIDES_SEAT_RESERVE_MIN` minutes (default **15**). Response includes `reservedUntil` (EAT `+03:00`).
+
+- **409** `SEAT_NOT_AVAILABLE` — paid, disabled, or another passenger's active hold
+
+### `POST /api/shared-rides/departures/{departureId}/seats/release`
+
+Optional body `{ "seatNumbers": [3] }`; omit `seatNumbers` to release all your holds on this departure.
+
+### `POST /api/shared-rides/departures/{departureId}/bookings`
+
+```json
+{ "seatNumbers": [3, 4] }
+```
+
+Creates a `shared_sgr` booking (`pending_payment`). Seats must already be reserved by you.
+
+Pay with the existing booking flow:
+
+`POST /api/bookings/{bookingId}/pay` — same M-Pesa / dev auto-pay as on-demand (`ALLOW_DEV_PAYMENT_CONFIRM`).
+
+On payment success, linked `SharedDepartureSeat` rows become **`paid`**.
+
+- **409** `SEATS_NOT_HELD`, `UNPAID_BOOKING_PENDING`, `DEPARTURE_CLOSED`
+
+---
+
 ## Not yet implemented
 
-| Method | Path |
-|--------|------|
-| `POST` | `/api/shared-rides/departures/{id}/seats/reserve` |
-
-See [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) checklist.
+Driver board, publish departure, private ride CTA — see [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) Phases 4–5.

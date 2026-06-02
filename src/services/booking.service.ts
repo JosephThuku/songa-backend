@@ -208,6 +208,8 @@ function toBookingDto(booking: Awaited<ReturnType<typeof prisma.booking.findUniq
     id: booking.id,
     passengerId: booking.passengerId,
     tripId: booking.tripId ?? null,
+    product: booking.product ?? "on_demand",
+    sharedDepartureId: booking.sharedDepartureId ?? null,
     status: booking.status,
     seats: booking.seats ? booking.seats.split(",").map((seat) => Number.parseInt(seat, 10)) : null,
     subtotal: booking.subtotal,

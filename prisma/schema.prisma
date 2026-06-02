@@ -50,6 +50,11 @@ enum BookingStatus {
   cancelled
 }
 
+enum BookingProduct {
+  on_demand
+  shared_sgr
+}
+
 enum PaymentStatus {
   pending
   succeeded
@@ -178,23 +183,27 @@ model RideEvent {
 }
 
 model Booking {
-  id          String        @id
-  passengerId String
-  passenger   User          @relation(fields: [passengerId], references: [id], onDelete: Cascade)
-  tripId      String?
-  status      BookingStatus @default(pending_payment)
-  seats       String?
-  subtotal    Int
-  platformFee Int           @default(50)
-  total       Int
-  currency    String        @default("KES")
-  pickup      Json
-  dropoff     Json
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  payments    Payment[]
+  id                String         @id
+  passengerId       String
+  passenger         User           @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+  tripId            String?
+  product           BookingProduct @default(on_demand)
+  sharedDepartureId String?
+  sharedDeparture   SharedDeparture? @relation(fields: [sharedDepartureId], references: [id], onDelete: SetNull)
+  status            BookingStatus  @default(pending_payment)
+  seats             String?
+  subtotal          Int
+  platformFee       Int            @default(50)
+  total             Int
+  currency          String         @default("KES")
+  pickup            Json
+  dropoff           Json
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  payments          Payment[]
 
   @@index([passengerId, status])
+  @@index([sharedDepartureId])
 }
 
 model Payment {
@@ -456,8 +465,9 @@ model SharedDeparture {
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 
-  seats              SharedDepartureSeat[]
+  seats               SharedDepartureSeat[]
   matchedTripRequests SharedTripRequest[]
+  bookings            Booking[]
 
   @@index([status, departureAt])
   @@index([pickupLocationId, dropoffLocationId, departureAt])

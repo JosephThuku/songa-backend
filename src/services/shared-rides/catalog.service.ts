@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import type { SgrScheduleSlotRef } from "../../domain/shared-rides.js";
+import { haversineDistanceKm } from "../../lib/geo.js";
+import { AppError } from "../../lib/errors.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
 import { prisma } from "../../lib/prisma.js";
 import { buildSuggestionsFromSlots } from "./suggestions.service.js";
@@ -27,6 +29,32 @@ export async function getCorridorLocationBySlug(slug: string) {
     where: { slug, isActive: true },
     select: locationSelect,
   });
+}
+
+/** Map GPS to the nearest corridor zone (prefer zones whose radius contains the point). */
+export async function resolveCorridorLocationFromGps(lat: number, lng: number) {
+  const locations = await listCorridorLocations();
+  const withCoords = locations.filter((loc) => loc.lat != null && loc.lng != null);
+  if (withCoords.length === 0) {
+    throw new AppError("CORRIDOR_CATALOG_EMPTY", 503, "No corridor locations configured.");
+  }
+
+  const point = { lat, lng };
+  const scored = withCoords.map((loc) => {
+    const distanceM = Math.round(
+      haversineDistanceKm(point, { lat: loc.lat as number, lng: loc.lng as number }) * 1000,
+    );
+    return { location: loc, distanceM, insideRadius: distanceM <= loc.radiusM };
+  });
+
+  const inside = scored.filter((s) => s.insideRadius).sort((a, b) => a.distanceM - b.distanceM);
+  const best = inside[0] ?? [...scored].sort((a, b) => a.distanceM - b.distanceM)[0]!;
+
+  return {
+    location: best.location,
+    distanceM: best.distanceM,
+    insideRadius: best.insideRadius,
+  };
 }
 
 export async function listScheduleSlots(filters: {
