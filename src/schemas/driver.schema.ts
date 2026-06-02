@@ -71,6 +71,12 @@ registry.registerPath({
   },
 });
 
+const VehicleSeatLayoutSchema = z.object({
+  rows: z.number().int().min(1).max(20),
+  cols: z.number().int().min(1).max(6),
+  disabled_seats: z.array(z.string().min(1)).optional(),
+});
+
 export const RegisterVehicleRequestSchema = registry.register(
   "RegisterVehicleRequest",
   z
@@ -82,6 +88,11 @@ export const RegisterVehicleRequestSchema = registry.register(
       color: z.string().trim().min(1),
       year: z.string().trim().optional(),
       seats: z.number().int().min(1).max(60),
+      seatLayout: VehicleSeatLayoutSchema.optional().openapi({
+        description:
+          "Optional van seat grid (Laravel). Used when driver joins/publishes shared departures. Omit for default 2-column layout.",
+        example: { rows: 7, cols: 2, disabled_seats: [] },
+      }),
     })
     .strict(),
 );

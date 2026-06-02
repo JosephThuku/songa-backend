@@ -6,6 +6,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { SharedRideDirection, SgrTrainService } from "../../src/domain/shared-rides.js";
+import { generateDepartureSeatsFromVehicle } from "../../src/lib/shared-rides-seat-layout.js";
 import {
   COAST_CORRIDOR_ZONES,
   SGR_MIRITINI,
@@ -304,11 +305,15 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       where: { departureId: dep.id },
     });
     if (existingSeats === 0) {
+      const layoutSeats = generateDepartureSeatsFromVehicle({ seats: 14 });
       await prisma.sharedDepartureSeat.createMany({
-        data: Array.from({ length: 14 }, (_, i) => ({
+        data: layoutSeats.map((seat, i) => ({
           departureId: dep.id,
-          seatNumber: i + 1,
-          status: i < 2 ? "paid" : "available",
+          seatNumber: seat.seatNumber,
+          seatLabel: seat.seatLabel,
+          row: seat.row,
+          col: seat.col,
+          status: i < 2 && seat.seatNumber <= 2 ? "paid" : seat.status,
         })),
       });
     }

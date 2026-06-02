@@ -1,6 +1,7 @@
 import type { Payment, Booking, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
+import { creditDriverForSharedBooking } from "./wallet.service.js";
 
 const bookingPaymentSelect = {
   id: true,
@@ -57,6 +58,11 @@ export async function completeBookingPayment(
       data: { status: "paid" },
     });
 
+    await tx.user.updateMany({
+      where: { id: booking.passengerId, phoneVerified: false },
+      data: { phoneVerified: true },
+    });
+
     if (freshBooking.sharedDepartureId) {
       await tx.sharedDepartureSeat.updateMany({
         where: { bookingId: freshBooking.id },
@@ -65,6 +71,7 @@ export async function completeBookingPayment(
           expiresAt: null,
         },
       });
+      await creditDriverForSharedBooking(tx, freshBooking.id);
     }
   });
 }

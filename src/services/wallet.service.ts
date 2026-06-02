@@ -1,5 +1,6 @@
 import cuid from "cuid";
 import { Prisma } from "@prisma/client";
+import { sharedRidesDriverHoldbackPercent } from "../config/shared-rides.js";
 import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { isMpesaB2cConfigured } from "../config/mpesa.js";
@@ -175,6 +176,75 @@ export async function findPendingCashoutByOriginator(originatorConversationId: s
       return meta?.originatorConversationId === originatorConversationId;
     }) ?? null
   );
+}
+
+/** Credit departure driver when a shared SGR booking is paid — idempotent per bookingId. */
+export async function creditDriverForSharedBooking(
+  tx: Prisma.TransactionClient,
+  bookingId: string,
+): Promise<void> {
+  const existing = await tx.walletTransaction.findFirst({
+    where: {
+      type: "shared_booking_credit",
+      metadata: { path: "$.bookingId", equals: bookingId },
+    },
+  });
+  if (existing) return;
+
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      id: true,
+      subtotal: true,
+      platformFee: true,
+      pickup: true,
+      dropoff: true,
+      sharedDepartureId: true,
+    },
+  });
+  if (!booking?.sharedDepartureId) return;
+
+  const departure = await tx.sharedDeparture.findUnique({
+    where: { id: booking.sharedDepartureId },
+    select: { driverId: true },
+  });
+  if (!departure?.driverId) return;
+
+  const holdPercent = sharedRidesDriverHoldbackPercent();
+  const gross = booking.subtotal;
+  const holdAmount = Math.round((gross * holdPercent) / 100);
+  const driverAmount = gross - holdAmount;
+
+  await tx.walletTransaction.create({
+    data: {
+      id: `tx_${cuid()}`,
+      driverId: departure.driverId,
+      type: "shared_booking_credit",
+      label: sharedBookingCreditLabel(booking.pickup, booking.dropoff),
+      amount: driverAmount,
+      status: "posted",
+      metadata: {
+        bookingId: booking.id,
+        sharedDepartureId: booking.sharedDepartureId,
+        subtotal: gross,
+        platformFee: booking.platformFee,
+        holdbackPercent: holdPercent,
+        holdbackAmount: holdAmount,
+      } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+function sharedBookingCreditLabel(pickup: unknown, dropoff: unknown): string {
+  const from = placeLabel(pickup);
+  const to = placeLabel(dropoff);
+  return `Shared van · ${from} → ${to}`;
+}
+
+function placeLabel(value: unknown): string {
+  const object = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const label = typeof object.label === "string" ? object.label : "Trip";
+  return label.split(",")[0] ?? label;
 }
 
 export function toWalletTransactionDto(tx: {

@@ -26,6 +26,11 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
   it("reserves seats, creates booking, pays, and marks seats paid", async () => {
     const app = buildTestApp();
     await seedSharedRidesCoast(prisma);
+    const driverSession = await createAuthSession(app, "+254713300102", "driver");
+    await prisma.sharedDeparture.update({
+      where: { id: DEMO_DEPARTURE_ID },
+      data: { driverId: driverSession.user.id },
+    });
     const token = await loginPassenger(app, PASSENGER_A);
     const devAutoPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true";
 
@@ -57,8 +62,8 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
       status: "pending_payment",
       seats: [3, 4],
       subtotal: 700,
-      platformFee: 50,
-      total: 750,
+      platformFee: 0,
+      total: 700,
       currency: "KES",
     });
 
@@ -76,6 +81,18 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     });
     if (devAutoPay) {
       expect(seats.every((s) => s.status === "paid")).toBe(true);
+
+      const walletTx = await prisma.walletTransaction.findFirst({
+        where: {
+          type: "shared_booking_credit",
+          metadata: { path: "$.bookingId", equals: bookingRes.body.booking.id },
+        },
+      });
+      expect(walletTx).toMatchObject({
+        driverId: driverSession.user.id,
+        amount: 700,
+        status: "posted",
+      });
     } else {
       expect(seats.every((s) => s.bookingId === bookingRes.body.booking.id)).toBe(true);
     }

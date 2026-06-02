@@ -22,6 +22,7 @@ import {
   ScheduleSlotsQuerySchema,
   SuggestionsQuerySchema,
   TripRequestIdParamsSchema,
+  UpdateDepartureLocationSchema,
   UpdateDepartureStatusSchema,
 } from "../schemas/shared-rides.schema.js";
 import {
@@ -34,6 +35,7 @@ import {
   listDriverDepartures,
   updateDriverDepartureStatus,
 } from "../services/shared-rides/driver-departure.service.js";
+import { updateDepartureDriverLocation } from "../services/shared-rides/departure-location.service.js";
 import { createSharedDepartureBooking } from "../services/shared-rides/departure-booking.service.js";
 import {
   getDepartureDetail,
@@ -49,8 +51,32 @@ import {
   searchDepartures,
 } from "../services/shared-rides/catalog.service.js";
 import { createTripRequest, listMyTripRequests } from "../services/shared-rides/trip-request.service.js";
+import { createCallInBooking } from "../services/shared-rides/call-in-booking.service.js";
+import { getPayInviteSummary, payViaInvite } from "../services/shared-rides/guest-pay.service.js";
+import {
+  CallInBookingSchema,
+  PayInviteParamsSchema,
+  PayInvitePaySchema,
+} from "../schemas/shared-rides.schema.js";
 
 const router: Router = Router();
+
+router.get(
+  "/pay-invites/:token",
+  asyncHandler(async (req, res) => {
+    const { token } = PayInviteParamsSchema.parse(req.params);
+    res.status(200).json(await getPayInviteSummary(token));
+  }),
+);
+
+router.post(
+  "/pay-invites/:token/pay",
+  asyncHandler(async (req, res) => {
+    const { token } = PayInviteParamsSchema.parse(req.params);
+    const body = PayInvitePaySchema.parse(req.body ?? {});
+    res.status(200).json(await payViaInvite(token, body));
+  }),
+);
 
 router.use(requireAuth);
 
@@ -221,6 +247,23 @@ router.patch(
   }),
 );
 
+router.patch(
+  "/departures/:departureId/location",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = UpdateDepartureLocationSchema.parse(req.body);
+    const result = await updateDepartureDriverLocation(
+      user.id,
+      departureId,
+      body.lat,
+      body.lng,
+    );
+    res.status(200).json(result);
+  }),
+);
+
 router.post(
   "/departures/:departureId/seats/reserve",
   requireRole("passenger"),
@@ -228,7 +271,12 @@ router.post(
     const user = passengerOrThrow(req);
     const { departureId } = DepartureIdParamsSchema.parse(req.params);
     const body = ReserveDepartureSeatsSchema.parse(req.body);
-    const result = await reserveDepartureSeats(departureId, user.id, body.seatNumbers);
+    const result = await reserveDepartureSeats(
+      departureId,
+      user.id,
+      body.seatNumbers,
+      body.pickup,
+    );
     res.status(200).json(result);
   }),
 );
@@ -253,6 +301,18 @@ router.post(
     const { departureId } = DepartureIdParamsSchema.parse(req.params);
     const body = CreateSharedDepartureBookingSchema.parse(req.body);
     const result = await createSharedDepartureBooking(departureId, user.id, body);
+    res.status(201).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/call-in-bookings",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = CallInBookingSchema.parse(req.body);
+    const result = await createCallInBooking(user.id, departureId, body);
     res.status(201).json(result);
   }),
 );

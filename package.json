@@ -17,6 +17,7 @@
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:shared-rides": "tsx prisma/seed-shared-rides.ts",
+    "shared-rides:release-expired-holds": "tsx scripts/release-expired-seat-holds.ts",
     "simulate:ride": "tsx scripts/simulate-ride-flow.ts",
     "db:push": "prisma db push",
     "db:sync": "prisma db push && prisma generate",

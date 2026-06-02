@@ -336,15 +336,29 @@ export const DepartureIdParamsSchema = z.object({
   departureId: z.string().trim().min(1).max(64),
 });
 
+const PickupPinSchema = z.object({
+  label: z.string().min(1).max(200),
+  lat: z.number(),
+  lng: z.number(),
+});
+
+const DriverLocationSchema = z.object({
+  lat: z.number(),
+  lng: z.number(),
+  updatedAt: eatDatetimeSchema,
+});
+
 const DepartureSeatOccupantSchema = z.object({
   passengerId: z.string(),
   name: z.string().nullable(),
   status: z.string(),
   reservedUntil: eatDatetimeSchema.nullable(),
+  pickupPin: PickupPinSchema.nullable(),
 });
 
 const DepartureSeatDtoSchema = z.object({
   seatNumber: z.number().int(),
+  seatLabel: z.string().openapi({ example: "A1", description: "Van layout label (Laravel-style)." }),
   status: z.enum(["available", "reserved", "paid", "disabled"]),
   isMine: z.boolean(),
   row: z.number().int().nullable(),
@@ -373,6 +387,10 @@ export const SharedDepartureDetailSchema = registry.register(
     dropoffLocation: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
     seatSummary: DepartureSeatSummarySchema,
     seats: z.array(DepartureSeatDtoSchema),
+    driverLocation: DriverLocationSchema.nullable().openapi({
+      description:
+        "Van GPS while scheduled/boarding. Passengers with a seat see this; drivers see their last post.",
+    }),
   }),
 );
 
@@ -416,6 +434,46 @@ export const ReserveDepartureSeatsSchema = registry.register(
         .min(1)
         .max(6)
         .openapi({ example: [3, 4], description: "1-based seat numbers on this van." }),
+      pickup: PickupPinSchema.optional().openapi({
+        description:
+          "Neighborhood pickup/drop-off pin (Laravel landmark). If omitted, uses trip-request pickupNote + zone center, or zone center only.",
+      }),
+    })
+    .strict(),
+);
+
+export const CallInBookingSchema = registry.register(
+  "CallInBooking",
+  z
+    .object({
+      phone: z.string().min(8).max(20),
+      passengerName: z.string().max(120).optional(),
+      seatNumbers: z.array(z.number().int().min(1)).min(1).max(6),
+      pickup: PickupPinSchema.optional(),
+    })
+    .strict(),
+);
+
+export const PayInviteParamsSchema = z.object({
+  token: z.string().min(10),
+});
+
+export const PayInvitePaySchema = registry.register(
+  "PayInvitePay",
+  z
+    .object({
+      provider: z.enum(["mpesa", "flutterwave"]),
+      phone: z.string().optional(),
+    })
+    .strict(),
+);
+
+export const UpdateDepartureLocationSchema = registry.register(
+  "UpdateDepartureLocation",
+  z
+    .object({
+      lat: z.number(),
+      lng: z.number(),
     })
     .strict(),
 );
@@ -778,12 +836,40 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "patch",
+  path: "/api/shared-rides/departures/{departureId}/location",
+  tags: ["Shared rides"],
+  summary: "Driver — post van GPS for this departure",
+  description:
+    "Mirrors Laravel `Trip.driver_lat` / `driver_lng` while the run is `scheduled` or `boarding`. Passengers with seats read `driverLocation` on departure detail.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: DepartureIdParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: UpdateDepartureLocationSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated departure (includes driverLocation).",
+      content: { "application/json": { schema: SharedDepartureDetailResponseSchema } },
+    },
+    409: {
+      description: "Departure not active (`DEPARTURE_NOT_ACTIVE`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
   method: "get",
   path: "/api/shared-rides/departures/{departureId}",
   tags: ["Shared rides"],
   summary: "Departure detail with seat map",
   description:
-    "Passenger: `isMine` on held seats. Driver (owner): `occupant` on reserved/paid seats + `seatSummary` counts.",
+    "Passenger: `isMine` on held seats; after pay, `driverLocation` while boarding. Driver (owner): `occupant.pickupPin` + `seatSummary`.",
   security: [{ bearerAuth: [] }, { cookieAuth: [] }],
   request: { params: DepartureIdParamsSchema },
   responses: {

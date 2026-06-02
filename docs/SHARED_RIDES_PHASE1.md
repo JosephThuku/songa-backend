@@ -4,7 +4,7 @@ API prefix: **`/api/shared-rides`** (admin later: **`/api/admin/shared-rides`**)
 
 Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
-**Mobile integrators:** [SHARED_RIDES_MOBILE_FLOW.md](./SHARED_RIDES_MOBILE_FLOW.md) — routes, user flows, diagrams.
+**Mobile integrators:** [SHARED_RIDES_MOBILE_INTEGRATION.md](./SHARED_RIDES_MOBILE_INTEGRATION.md) (capabilities + why), [SHARED_RIDES_MOBILE_FLOW.md](./SHARED_RIDES_MOBILE_FLOW.md) (sequences).
 
 ---
 
@@ -57,10 +57,21 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
 ---
 
-## Phase 5 — Polish
+## Phase 5 — Pickup tracking + polish
 
+- [x] Passenger `pickup` pin on seat reserve (+ fallback from `pickupNote` / zone center)
+- [x] Booking pickup/dropoff respects `to_sgr` / `from_sgr`
+- [x] Driver `PATCH …/departures/:id/location` (Laravel trip GPS)
+- [x] Passenger track `driverLocation` on departure GET while `boarding`
+- [x] `npm run shared-rides:release-expired-holds` (global expired hold release)
+- [x] [`SHARED_RIDES_MOBILE_INTEGRATION.md`](./SHARED_RIDES_MOBILE_INTEGRATION.md)
 - [ ] Private ride CTA → existing `/api/rides/*`
-- [ ] Notifications / SMS on match
+- [x] Driver call-in booking + guest pay invite (no login; see API)
+- [x] Seat layout labels (`Vehicle.seatLayout` → A1, B2, …)
+- [x] In-process expired hold sweep (5 min) + `npm run shared-rides:release-expired-holds`
+- [ ] Refer call-in to another driver (backlog)
+- [ ] Driver wallet / subscription (backlog — `docs/backlog/shared-rides.md`)
+- [x] Notifications / SMS on match (Phase 4)
 - [x] OpenAPI docs for shared-rides routes (`src/schemas/shared-rides.schema.ts`, tag **Shared rides**)
 - [x] Integrator markdown [`SHARED_RIDES_API.md`](./SHARED_RIDES_API.md)
 - [x] Tests: `tests/shared-rides.test.ts`, `tests/shared-rides-suggestions.test.ts`

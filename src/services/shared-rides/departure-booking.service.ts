@@ -1,10 +1,15 @@
 import cuid from "cuid";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
-import { PLATFORM_FEE_KES } from "../../lib/ride-pricing.js";
+import { SHARED_SGR_PLATFORM_FEE_KES } from "../../config/shared-rides.js";
 import { prisma } from "../../lib/prisma.js";
 import type { PlaceDto } from "../../lib/responses.js";
 import { assertSeatsHeldForBooking, releaseExpiredSeatHolds } from "./departure-seats.service.js";
+import {
+  defaultNeighborhoodPickupPin,
+  pickupPinFromSeat,
+  SGR_CORRIDOR_SLUG,
+} from "./shared-rides-pickup.js";
 
 export type CreateSharedDepartureBookingInput = {
   seatNumbers: number[];
@@ -78,8 +83,25 @@ export async function createSharedDepartureBooking(
   const seatNumbers = [...new Set(input.seatNumbers)].sort((a, b) => a - b);
   await assertSeatsHeldForBooking(departureId, passengerId, seatNumbers);
 
+  const heldSeats = await prisma.sharedDepartureSeat.findMany({
+    where: { departureId, seatNumber: { in: seatNumbers }, reservedById: passengerId },
+    select: { pickupLabel: true, pickupLat: true, pickupLng: true },
+  });
+  const passengerPin =
+    pickupPinFromSeat(heldSeats[0] ?? {}) ??
+    defaultNeighborhoodPickupPin(departure) ??
+    placeFromLocation(departure.pickupLocation);
+  const isToSgr = departure.dropoffLocation.slug === SGR_CORRIDOR_SLUG;
+  const sgrPlace = placeFromLocation(
+    departure.pickupLocation.slug === SGR_CORRIDOR_SLUG
+      ? departure.pickupLocation
+      : departure.dropoffLocation,
+  );
+  const pickupPlace = isToSgr ? passengerPin : sgrPlace;
+  const dropoffPlace = isToSgr ? placeFromLocation(departure.dropoffLocation) : passengerPin;
+
   const subtotal = departure.pricePerSeat * seatNumbers.length;
-  const platformFee = PLATFORM_FEE_KES;
+  const platformFee = SHARED_SGR_PLATFORM_FEE_KES;
   const total = subtotal + platformFee;
   const bookingId = `BKG-${cuid()}`;
 
@@ -94,8 +116,8 @@ export async function createSharedDepartureBooking(
         subtotal,
         platformFee,
         total,
-        pickup: placeJson(placeFromLocation(departure.pickupLocation)),
-        dropoff: placeJson(placeFromLocation(departure.dropoffLocation)),
+        pickup: placeJson(pickupPlace),
+        dropoff: placeJson(dropoffPlace),
         status: "pending_payment",
       },
     });
@@ -122,8 +144,8 @@ export async function createSharedDepartureBooking(
       platformFee,
       total,
       currency: "KES",
-      pickup: placeFromLocation(departure.pickupLocation),
-      dropoff: placeFromLocation(departure.dropoffLocation),
+      pickup: pickupPlace,
+      dropoff: dropoffPlace,
       createdAt: new Date().toISOString(),
     },
   };

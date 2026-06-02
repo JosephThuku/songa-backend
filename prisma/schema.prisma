@@ -125,6 +125,8 @@ model Vehicle {
   color          String
   year           String?
   seats          Int             @default(4)
+  /// Laravel `seat_layout`: rows, cols, disabled_seats (e.g. A1).
+  seatLayout     Json?
   status         String          @default("Activated")
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -462,6 +464,10 @@ model SharedDeparture {
   /// Seat count for this run; Phase 4 should align with driver Vehicle.seats when driver publishes.
   capacity            Int                   @default(14)
   status              SharedDepartureStatus @default(scheduled)
+  /// Live van position while serving passengers (Laravel Trip.driver_lat/lng).
+  driverLat             Float?
+  driverLng             Float?
+  driverLocationUpdatedAt DateTime?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 
@@ -485,6 +491,8 @@ model SharedDepartureSeat {
   departureId  String
   departure    SharedDeparture           @relation(fields: [departureId], references: [id], onDelete: Cascade)
   seatNumber   Int
+  /// Display label (A1, B2). `seatNumber` is the bookable index for API reserve.
+  seatLabel    String            @default("")
   row          Int?
   col          Int?
   status       SharedDepartureSeatStatus @default(available)
@@ -493,6 +501,10 @@ model SharedDepartureSeat {
   reservedAt   DateTime?
   expiresAt    DateTime?
   bookingId    String?
+  /// Neighborhood pickup pin for this passenger (label + coordinates).
+  pickupLabel  String?                   @db.VarChar(200)
+  pickupLat    Float?
+  pickupLng    Float?
   createdAt    DateTime                  @default(now())
   updatedAt    DateTime                  @updatedAt
 
