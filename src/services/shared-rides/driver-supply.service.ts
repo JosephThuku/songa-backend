@@ -3,6 +3,7 @@ import { AppError } from "../../lib/errors.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
 import { prisma } from "../../lib/prisma.js";
 import { notifyPassengersTripRequestMatched } from "./shared-rides-notify.js";
+import { buildDepartureSeatRows } from "./departure-seat-generation.js";
 import {
   corridorLocationBriefSelect,
   sgrSlotWithLocationsInclude,
@@ -165,8 +166,15 @@ export async function joinTripRequest(
     }
 
     const slot = tripRequest.sgrScheduleSlot as SgrScheduleSlotWithLocations;
-    const capacity = departureCapacity(vehicleSeats, tripRequest.seatsRequested);
     const departureId = `dep_${cuid()}`;
+    const seatRows = buildDepartureSeatRows(departureId, profile.vehicle!);
+    if (seatRows.length < tripRequest.seatsRequested) {
+      throw new AppError(
+        "VEHICLE_CAPACITY_TOO_SMALL",
+        409,
+        "Your vehicle does not have enough bookable seats for this passenger pool.",
+      );
+    }
 
     const departure = await tx.sharedDeparture.create({
       data: {
@@ -177,7 +185,7 @@ export async function joinTripRequest(
         sgrScheduleSlotId: slot.id,
         departureAt: tripRequest.requestedDepartureAt,
         pricePerSeat: slot.suggestedPricePerSeat,
-        capacity,
+        capacity: seatRows.length,
         status: "scheduled",
       },
       include: {
@@ -186,13 +194,7 @@ export async function joinTripRequest(
       },
     });
 
-    await tx.sharedDepartureSeat.createMany({
-      data: Array.from({ length: capacity }, (_, i) => ({
-        departureId,
-        seatNumber: i + 1,
-        status: "available" as const,
-      })),
-    });
+    await tx.sharedDepartureSeat.createMany({ data: seatRows });
 
     const claimed = await tx.sharedTripRequest.updateMany({
       where: { id: tripRequestId, status: "open", matchedDepartureId: null },
@@ -258,9 +260,9 @@ export async function publishDeparture(
     throw new AppError("SGR_SLOT_NOT_FOUND", 404, "Schedule slot not found.");
   }
 
-  const capacity = departureCapacity(profile.vehicle!.seats, 1);
   const pricePerSeat = input.pricePerSeat ?? slot.suggestedPricePerSeat;
   const departureId = `dep_${cuid()}`;
+  const seatRows = buildDepartureSeatRows(departureId, profile.vehicle!);
 
   const departure = await prisma.$transaction(async (tx) => {
     const created = await tx.sharedDeparture.create({
@@ -272,7 +274,7 @@ export async function publishDeparture(
         sgrScheduleSlotId: slot.id,
         departureAt,
         pricePerSeat,
-        capacity,
+        capacity: seatRows.length,
         status: "scheduled",
       },
       include: {
@@ -281,13 +283,7 @@ export async function publishDeparture(
       },
     });
 
-    await tx.sharedDepartureSeat.createMany({
-      data: Array.from({ length: capacity }, (_, i) => ({
-        departureId,
-        seatNumber: i + 1,
-        status: "available" as const,
-      })),
-    });
+    await tx.sharedDepartureSeat.createMany({ data: seatRows });
 
     return created;
   });

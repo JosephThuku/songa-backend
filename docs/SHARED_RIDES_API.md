@@ -231,11 +231,18 @@ Returns `{ items: [{ tripRequest, reservation }] }` for active reservations on f
 
 Seat map for a scheduled van (`status`, `isMine`, optional `row`/`col`). Demo id after seed: `dep_seed_nyali_sgr_morning`.
 
+After reserve/pay, passengers can poll the same endpoint through **`boarding`** to read `driverLocation` (van GPS).
+
 ### `POST /api/shared-rides/departures/{departureId}/seats/reserve`
 
 ```json
-{ "seatNumbers": [3, 4] }
+{
+  "seatNumbers": [3, 4],
+  "pickup": { "label": "City Mall gate", "lat": -4.043, "lng": 39.71 }
+}
 ```
+
+`pickup` is optional: uses `pickupNote` from your matched trip request + zone center, else zone center only (Laravel landmark gap).
 
 Holds seats for `SHARED_RIDES_SEAT_RESERVE_MIN` minutes (default **5**, matches Laravel `SEAT_RESERVATION_MINUTES`). Response includes `reservedUntil` (EAT `+03:00`).
 
@@ -307,6 +314,16 @@ Same path as passengers; when called as the owning driver, seats include `occupa
 
 Lifecycle: `scheduled` → `boarding` → `completed`, or `cancelled`.
 
+### `PATCH /api/shared-rides/departures/{departureId}/location`
+
+Driver posts van GPS while `scheduled` or `boarding` (Laravel `Trip.driver_lat` / `driver_lng`).
+
+```json
+{ "lat": -4.04, "lng": 39.72 }
+```
+
+Response departure includes `driverLocation: { lat, lng, updatedAt }` for the driver; passengers with seats see it on `GET` departure.
+
 ### `POST /api/shared-rides/departures`
 
 Publish a van without a passenger pool.
@@ -321,6 +338,29 @@ Publish a van without a passenger pool.
 
 ---
 
+## Call-in booking + guest pay
+
+Driver-only while departure is `scheduled`.
+
+### `POST /api/shared-rides/departures/{departureId}/call-in-bookings`
+
+```json
+{
+  "phone": "+2547XXXXXXXX",
+  "passengerName": "optional",
+  "seatNumbers": [3],
+  "pickup": { "label": "City Mall gate", "lat": -4.043, "lng": 39.71 }
+}
+```
+
+Creates passenger if needed, long hold (24h / 72h — see integration guide), pending booking, SMS pay link.
+
+### `GET /api/shared-rides/pay-invites/{token}` · `POST …/pay-invites/{token}/pay`
+
+**No JWT.** Passenger pays via M-Pesa from SMS link. Body: `{ "provider": "mpesa", "phone": "+2547…" }`.
+
+---
+
 ## Not yet implemented
 
-Private ride CTA, extra notification types — see [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) Phase 5.
+Refer call-in to another driver; driver wallet rules — see [docs/backlog/shared-rides.md](./backlog/shared-rides.md) and [SHARED_RIDES_MOBILE_INTEGRATION.md](./SHARED_RIDES_MOBILE_INTEGRATION.md).

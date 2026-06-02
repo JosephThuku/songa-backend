@@ -15,6 +15,7 @@ import {
   googlePlacesKeyEnvHint,
 } from "./lib/google-places-key.js";
 import { attachSocketIo } from "./lib/socket.js";
+import { startExpiredSeatHoldSweep } from "./lib/expired-seat-hold-sweep.js";
 
 async function main(): Promise<void> {
   assertPrismaClientCurrent();
@@ -35,6 +36,8 @@ async function main(): Promise<void> {
   const stopDispatchWorker = process.env.REDIS_URL
     ? startDispatchWorker()
     : () => undefined;
+  const stopSeatHoldSweep =
+    env.NODE_ENV === "test" ? () => undefined : startExpiredSeatHoldSweep();
   const io = attachSocketIo({ server: httpServer, env });
 
   httpServer.listen(env.PORT, () => {
@@ -48,6 +51,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, "Shutting down");
     stopRideBridge();
     stopDispatchWorker();
+    stopSeatHoldSweep();
     io.close(() => undefined);
     httpServer.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();

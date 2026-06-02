@@ -1,4 +1,5 @@
 import cuid from "cuid";
+import type { Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { toVehicleEmbedDto, type VehicleEmbedDto } from "../lib/responses.js";
@@ -11,6 +12,7 @@ export interface RegisterVehicleInput {
   color: string;
   year?: string;
   seats: number;
+  seatLayout?: { rows: number; cols: number; disabled_seats?: string[] };
 }
 
 export async function registerDriverVehicle(
@@ -23,6 +25,9 @@ export async function registerDriverVehicle(
   }
 
   const registration = input.registration.trim().toUpperCase();
+  const seatLayoutJson = input.seatLayout
+    ? (input.seatLayout as Prisma.InputJsonValue)
+    : undefined;
   const existing = await prisma.vehicle.findUnique({ where: { registration } });
   const vehicle =
     existing ??
@@ -36,6 +41,7 @@ export async function registerDriverVehicle(
         color: input.color,
         year: input.year ?? null,
         seats: input.seats,
+        seatLayout: seatLayoutJson,
         status: "Activated",
       },
     }));
@@ -58,6 +64,7 @@ export async function registerDriverVehicle(
       color: input.color,
       year: input.year ?? null,
       seats: input.seats,
+      ...(seatLayoutJson !== undefined ? { seatLayout: seatLayoutJson } : {}),
       status: "Activated",
     },
   });

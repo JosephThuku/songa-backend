@@ -2,7 +2,15 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../lib/errors.js";
 import { sharedRidesConfig } from "../../lib/shared-rides-config.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
+import { driverLocationFromDeparture, type DriverLocationDto } from "./departure-driver-location.js";
 import { corridorLocationBriefSelect } from "./shared-rides-prisma.js";
+import {
+  defaultNeighborhoodPickupPin,
+  findTripRequestPickupNote,
+  pickupPinFromSeat,
+  SGR_CORRIDOR_SLUG,
+  type PickupPinDto,
+} from "./shared-rides-pickup.js";
 
 function reserveExpiresAt(): Date {
   return new Date(Date.now() + sharedRidesConfig.seatReserveMinutes * 60_000);
@@ -23,6 +31,9 @@ export async function releaseExpiredSeatHolds(departureId: string): Promise<void
       reservedAt: null,
       expiresAt: null,
       bookingId: null,
+      pickupLabel: null,
+      pickupLat: null,
+      pickupLng: null,
     },
   });
 }
@@ -32,10 +43,12 @@ export type DepartureSeatOccupantDto = {
   name: string | null;
   status: string;
   reservedUntil: string | null;
+  pickupPin: PickupPinDto | null;
 };
 
 export type DepartureSeatDto = {
   seatNumber: number;
+  seatLabel: string;
   status: string;
   isMine: boolean;
   row: number | null;
@@ -54,6 +67,7 @@ export type SharedDepartureDetailDto = {
   dropoffLocation: { id: string; slug: string; name: string };
   seatSummary: { paid: number; reserved: number; available: number };
   seats: DepartureSeatDto[];
+  driverLocation: DriverLocationDto | null;
 };
 
 type Viewer = { id: string; role: "passenger" | "driver" };
@@ -116,11 +130,15 @@ function seatSummary(seats: { status: string }[]) {
 function mapSeats(
   seats: Array<{
     seatNumber: number;
+    seatLabel: string;
     status: string;
     row: number | null;
     col: number | null;
     reservedById: string | null;
     expiresAt: Date | null;
+    pickupLabel: string | null;
+    pickupLat: number | null;
+    pickupLng: number | null;
     reservedBy: { id: string; name: string | null } | null;
   }>,
   viewer: Viewer,
@@ -128,6 +146,7 @@ function mapSeats(
   return seats.map((s) => {
     const base: DepartureSeatDto = {
       seatNumber: s.seatNumber,
+      seatLabel: s.seatLabel || String(s.seatNumber),
       status: s.status,
       isMine: viewer.role === "passenger" && s.reservedById === viewer.id,
       row: s.row,
@@ -144,6 +163,7 @@ function mapSeats(
         status: s.status,
         reservedUntil:
           s.status === "reserved" && s.expiresAt ? toNairobiIso(s.expiresAt) : null,
+        pickupPin: pickupPinFromSeat(s),
       };
     }
     return base;
@@ -154,6 +174,10 @@ function toDepartureDto(
   departure: Awaited<ReturnType<typeof loadDepartureForView>>,
   viewer: Viewer,
 ): SharedDepartureDetailDto {
+  const showDriverLocation =
+    (departure.status === "boarding" || departure.status === "scheduled") &&
+    (viewer.role === "driver" ||
+      (viewer.role === "passenger" && passengerHasSeat(departure.seats, viewer.id)));
   return {
     id: departure.id,
     departureAt: toNairobiIso(departure.departureAt),
@@ -165,7 +189,46 @@ function toDepartureDto(
     dropoffLocation: departure.dropoffLocation,
     seatSummary: seatSummary(departure.seats),
     seats: mapSeats(departure.seats, viewer),
+    driverLocation: showDriverLocation ? driverLocationFromDeparture(departure) : null,
   };
+}
+
+async function resolvePickupPinForReserve(
+  departure: Awaited<ReturnType<typeof loadDepartureForPassengerBooking>>,
+  passengerId: string,
+  pickup?: PickupPinDto,
+): Promise<PickupPinDto | null> {
+  if (pickup) return pickup;
+
+  const isToSgr = departure.dropoffLocation.slug === SGR_CORRIDOR_SLUG;
+
+  const note = await findTripRequestPickupNote(passengerId, departure.id);
+  if (note) {
+    const fromNote = defaultNeighborhoodPickupPin({
+      pickupLocation: departure.pickupLocation,
+      dropoffLocation: departure.dropoffLocation,
+    });
+    if (fromNote) {
+      return { ...fromNote, label: note };
+    }
+  }
+
+  if (!isToSgr) {
+    return null;
+  }
+
+  const fallback = defaultNeighborhoodPickupPin({
+    pickupLocation: departure.pickupLocation,
+    dropoffLocation: departure.dropoffLocation,
+  });
+  if (!fallback) {
+    throw new AppError(
+      "PICKUP_LOCATION_REQUIRED",
+      400,
+      "Send pickup coordinates (lat/lng + label) when reserving seats for trips to SGR.",
+    );
+  }
+  return fallback;
 }
 
 export async function getDepartureDetailForViewer(
@@ -176,21 +239,46 @@ export async function getDepartureDetailForViewer(
   return { departure: toDepartureDto(departure, viewer) };
 }
 
-/** Passenger booking flow — scheduled departures only. */
+function passengerHasSeat(
+  seats: Array<{ reservedById: string | null; status: string }>,
+  passengerId: string,
+): boolean {
+  return seats.some(
+    (s) =>
+      s.reservedById === passengerId && (s.status === "reserved" || s.status === "paid"),
+  );
+}
+
+/** Passenger seat map: booking while scheduled, or track van after reserve/pay through boarding. */
 export async function getDepartureDetail(
   departureId: string,
   passengerId: string,
 ): Promise<{ departure: SharedDepartureDetailDto }> {
-  const departure = await loadDepartureForPassengerBooking(departureId);
-  return {
-    departure: toDepartureDto(
-      {
-        ...departure,
-        seats: departure.seats.map((s) => ({ ...s, reservedBy: null })),
-      },
-      { id: passengerId, role: "passenger" },
-    ),
-  };
+  await releaseExpiredSeatHolds(departureId);
+  const departure = await loadDepartureForView(departureId, { id: passengerId, role: "passenger" });
+  const now = Date.now();
+  const bookingOpen =
+    departure.status === "scheduled" && departure.departureAt.getTime() > now;
+  const canTrack =
+    passengerHasSeat(departure.seats, passengerId) &&
+    (departure.status === "scheduled" || departure.status === "boarding");
+
+  if (bookingOpen) {
+    return {
+      departure: toDepartureDto(
+        {
+          ...departure,
+          seats: departure.seats.map((s) => ({ ...s, reservedBy: null })),
+        },
+        { id: passengerId, role: "passenger" },
+      ),
+    };
+  }
+  if (canTrack) {
+    return { departure: toDepartureDto(departure, { id: passengerId, role: "passenger" }) };
+  }
+
+  throw new AppError("DEPARTURE_NOT_FOUND", 404, "Departure not found or not available to you.");
 }
 
 function normalizeSeatNumbers(seatNumbers: number[], capacity: number): number[] {
@@ -210,10 +298,15 @@ export async function reserveDepartureSeats(
   departureId: string,
   passengerId: string,
   seatNumbers: number[],
+  pickup?: PickupPinDto,
 ): Promise<{ departure: SharedDepartureDetailDto; reservedUntil: string }> {
   const departure = await loadDepartureForPassengerBooking(departureId);
   const seats = normalizeSeatNumbers(seatNumbers, departure.capacity);
   const expiresAt = reserveExpiresAt();
+  const pickupPin = await resolvePickupPinForReserve(departure, passengerId, pickup);
+  const pickupData = pickupPin
+    ? { pickupLabel: pickupPin.label, pickupLat: pickupPin.lat, pickupLng: pickupPin.lng }
+    : { pickupLabel: null, pickupLat: null, pickupLng: null };
 
   await prisma.$transaction(async (tx) => {
     const rows = await tx.sharedDepartureSeat.findMany({
@@ -247,6 +340,7 @@ export async function reserveDepartureSeats(
         reservedAt: now,
         expiresAt,
         bookingId: null,
+        ...pickupData,
       },
     });
   });
@@ -278,6 +372,9 @@ export async function releaseDepartureSeats(
       reservedById: null,
       reservedAt: null,
       expiresAt: null,
+      pickupLabel: null,
+      pickupLat: null,
+      pickupLng: null,
     },
   });
 
