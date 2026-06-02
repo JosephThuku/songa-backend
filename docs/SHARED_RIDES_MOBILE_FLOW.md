@@ -25,11 +25,9 @@
 |-------|----------------|----------------------|
 | **1 — Catalog** | On **`main`** | Yes |
 | **2 — Trip request (intent)** | On **`main`** | Yes |
-| **3 — Seats + prepay** | **[PR #3](https://github.com/JosephThuku/songa-backend/pull/3)** — merge to `main` before prod | Use `feat/shared-rides-phase-3` locally until merged |
-| **4 — Driver supply** | Not built | No — stubs only |
+| **3 — Seats + prepay** | On **`main`** | Yes |
+| **4 — Driver supply** | On **`feat/shared-rides-phase-4`** (merge before prod) | After merge |
 | **5 — Polish** | Partial | Private ride → existing `/api/rides/*` today |
-
-Until Phase 3 is merged, **`POST /corridor-locations/resolve`** and departure seat/booking routes return **404** on `main`.
 
 ---
 
@@ -58,13 +56,18 @@ Until Phase 3 is merged, **`POST /corridor-locations/resolve`** and departure se
 | `POST` | `/api/shared-rides/departures/{departureId}/bookings` | Create `shared_sgr` booking |
 | `POST` | `/api/bookings/{bookingId}/pay` | **Checkout** — M-Pesa / dev pay (existing screen) |
 
-### Coming later (Phase 4–5) — driver & polish
+### Phase 4 — Driver (after branch merge)
 
 | Method | Path | Screen / purpose |
 |--------|------|------------------|
 | `GET` | `/api/shared-rides/trip-requests` | **Driver board** — open pools |
-| `POST` | `/api/shared-rides/trip-requests/{id}/join` | Driver joins a pool |
-| `POST` | `/api/shared-rides/departures` | **Driver publish** — van + seats from vehicle |
+| `POST` | `/api/shared-rides/trip-requests/{tripRequestId}/join` | Claim pool → publishes departure |
+| `POST` | `/api/shared-rides/departures` | **Publish van** without a pool |
+
+### Coming later (Phase 5)
+
+| Method | Path | Screen / purpose |
+|--------|------|------------------|
 | — | `POST /api/rides/request` (existing) | **Private ride** CTA when no shared option fits |
 
 ---
@@ -106,7 +109,9 @@ flowchart TB
     H -->|Yes| G
     G --> I[POST trip-requests body = suggestedTripRequests item]
     I --> J[GET trip-requests/mine]
-    J --> K[Wait for driver Phase 4]
+    J --> K[Driver joins pool Phase 4]
+    K --> M[Passenger notified shared_ride_matched]
+    M --> N[Passenger reserves seats on departure]
   end
 
   subgraph pathB [Path B — Scheduled van Phase 3]
@@ -146,12 +151,32 @@ sequenceDiagram
   App->>API: GET /trip-requests/mine
   API-->>App: items[] active intents
 
-  Note over App,API: Phase 4 — driver matches pool → departure
+  Note over App,API: Driver join (Phase 4) notifies passengers to book seats
 ```
 
 **POST body** = one element from `suggestedTripRequests` (add `pickupNote`, `seatsRequested`).
 
 **Pooling:** Same `sgrScheduleSlotId` + same `vanDepartureAt` → one `tripRequest.id`, multiple passengers.
+
+---
+
+## Path C — Driver claim — **Phase 4**
+
+```mermaid
+sequenceDiagram
+  participant DriverApp
+  participant SR as shared-rides API
+  participant PassengerApp
+
+  DriverApp->>SR: GET /trip-requests?direction=to_sgr
+  SR-->>DriverApp: items[] open pools
+
+  DriverApp->>SR: POST /trip-requests/{id}/join
+  SR-->>DriverApp: matched + departure
+
+  Note over PassengerApp: Inbox/push type shared_ride_matched
+  PassengerApp->>SR: GET /departures/{id} → reserve → book → pay
+```
 
 ---
 
@@ -207,7 +232,8 @@ sequenceDiagram
 | My shared intents | `trip-requests/mine` | 2 |
 | Departure detail + seat grid | `GET departures/:id`, reserve/release | 3 |
 | Checkout | `POST departures/:id/bookings` → `POST bookings/:id/pay` | 3 |
-| Driver board (future) | `GET trip-requests`, join, publish | 4 |
+| Driver board | `GET trip-requests`, `POST join` | 4 |
+| Driver publish van | `POST departures` | 4 |
 
 ---
 
@@ -268,12 +294,11 @@ timeline
     Catalog zones slots : GET corridor-locations
     Suggestions search : GET suggestions departures/search
     Trip request pool : POST GET trip-requests
-  section PR3 merge
-    GPS resolve : POST corridor-locations/resolve
-    Seat map reserve book : GET departures POST seats POST bookings
-    Pay existing checkout : POST bookings pay
-  section Phase 4
+  section Done main
+    Phase 3 seats prepay : reserve book pay
+  section Phase 4 branch
     Driver board join publish : GET trip-requests POST join POST departures
+    Passenger notify on match : shared_ride_matched
   section Phase 5
     Private ride CTA notifications : rides request SMS push
 ```

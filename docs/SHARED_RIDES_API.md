@@ -237,7 +237,7 @@ Seat map for a scheduled van (`status`, `isMine`, optional `row`/`col`). Demo id
 { "seatNumbers": [3, 4] }
 ```
 
-Holds seats for `SHARED_RIDES_SEAT_RESERVE_MIN` minutes (default **15**). Response includes `reservedUntil` (EAT `+03:00`).
+Holds seats for `SHARED_RIDES_SEAT_RESERVE_MIN` minutes (default **5**, matches Laravel `SEAT_RESERVATION_MINUTES`). Response includes `reservedUntil` (EAT `+03:00`).
 
 - **409** `SEAT_NOT_AVAILABLE` — paid, disabled, or another passenger's active hold
 
@@ -263,6 +263,64 @@ On payment success, linked `SharedDepartureSeat` rows become **`paid`**.
 
 ---
 
+## Driver supply (Phase 4)
+
+Driver-only (`role: driver`). Requires **driver profile + registered vehicle** (`403` otherwise).
+
+### `GET /api/shared-rides/trip-requests`
+
+Open passenger pools (future van, active reservations). Query: `direction`, `corridorLocationSlug`.
+
+```json
+{
+  "items": [
+    {
+      "tripRequest": { "id": "…", "status": "open", "poolSeatsTotal": 2, "…": "…" },
+      "poolSeatsTotal": 2,
+      "passengerCount": 1
+    }
+  ]
+}
+```
+
+### `POST /api/shared-rides/trip-requests/{tripRequestId}/join`
+
+First driver wins: creates `SharedDeparture`, links pool (`status: matched`), generates seats from **vehicle capacity** (at least pool size).
+
+Passengers with active reservations receive **`shared_ride_matched`** notification (inbox + push when enabled).
+
+- **409** `TRIP_REQUEST_ALREADY_CLAIMED`, `TRIP_REQUEST_NOT_OPEN`, `TRIP_REQUEST_EMPTY`
+
+### `GET /api/shared-rides/departures/mine`
+
+Driver's active departures with `seatSummary` (`paid`, `reserved`, `available`).
+
+### `GET /api/shared-rides/departures/{departureId}` (driver)
+
+Same path as passengers; when called as the owning driver, seats include `occupant` (name, hold expiry) for reserved/paid seats — like Laravel driver trip seat map.
+
+### `PATCH /api/shared-rides/departures/{departureId}/status`
+
+```json
+{ "status": "boarding" }
+```
+
+Lifecycle: `scheduled` → `boarding` → `completed`, or `cancelled`.
+
+### `POST /api/shared-rides/departures`
+
+Publish a van without a passenger pool.
+
+```json
+{
+  "sgrScheduleSlotId": "…",
+  "departureAt": "2026-06-02T06:00:00+03:00",
+  "pricePerSeat": 350
+}
+```
+
+---
+
 ## Not yet implemented
 
-Driver board, publish departure, private ride CTA — see [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) Phases 4–5.
+Private ride CTA, extra notification types — see [SHARED_RIDES_PHASE1.md](./SHARED_RIDES_PHASE1.md) Phase 5.

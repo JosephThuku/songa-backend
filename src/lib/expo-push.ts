@@ -17,7 +17,8 @@ const PUSH_TYPES = new Set(["ride_offer", "ride_update"]);
 
 export function shouldDeliverPush(type: string): boolean {
   if (PUSH_TYPES.has(type)) return true;
-  return type.startsWith("payment_");
+  if (type.startsWith("payment_")) return true;
+  return type.startsWith("shared_ride_");
 }
 
 export interface ExpoPushInput {
