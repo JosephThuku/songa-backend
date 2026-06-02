@@ -1,5 +1,5 @@
 /**
- * Shared SGR / coast corridor (Phase 1–3).
+ * Shared SGR / coast corridor (Phase 1–4).
  * @see docs/SHARED_RIDES_API.md — integrator guide
  * @see src/schemas/shared-rides.schema.ts — Zod + OpenAPI (`/api/docs` tag "Shared rides")
  */
@@ -14,12 +14,26 @@ import {
   CreateTripRequestSchema,
   DepartureIdParamsSchema,
   DeparturesSearchQuerySchema,
+  DriverTripRequestsQuerySchema,
+  PublishSharedDepartureSchema,
   ReleaseDepartureSeatsSchema,
   ReserveDepartureSeatsSchema,
   ResolveCorridorLocationSchema,
   ScheduleSlotsQuerySchema,
   SuggestionsQuerySchema,
+  TripRequestIdParamsSchema,
+  UpdateDepartureStatusSchema,
 } from "../schemas/shared-rides.schema.js";
+import {
+  joinTripRequest,
+  listDriverTripRequests,
+  publishDeparture,
+} from "../services/shared-rides/driver-supply.service.js";
+import {
+  getDriverDepartureDetail,
+  listDriverDepartures,
+  updateDriverDepartureStatus,
+} from "../services/shared-rides/driver-departure.service.js";
 import { createSharedDepartureBooking } from "../services/shared-rides/departure-booking.service.js";
 import {
   getDepartureDetail,
@@ -104,6 +118,14 @@ function passengerOrThrow(req: Request): Express.UserContext {
   return req.user;
 }
 
+function driverOrThrow(req: Request): Express.UserContext {
+  if (!req.user) throw new AppError("UNAUTHORIZED", 401, "Authentication required.");
+  if (req.user.role !== "driver") {
+    throw new AppError("FORBIDDEN", 403, "Only drivers can access this shared rides endpoint.");
+  }
+  return req.user;
+}
+
 router.post(
   "/trip-requests",
   requireRole("passenger"),
@@ -126,12 +148,75 @@ router.get(
 );
 
 router.get(
-  "/departures/:departureId",
-  requireRole("passenger"),
+  "/trip-requests",
+  requireRole("driver"),
   asyncHandler(async (req, res) => {
-    const user = passengerOrThrow(req);
+    driverOrThrow(req);
+    const query = DriverTripRequestsQuerySchema.parse(req.query);
+    const result = await listDriverTripRequests(query);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/trip-requests/:tripRequestId/join",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { tripRequestId } = TripRequestIdParamsSchema.parse(req.params);
+    const result = await joinTripRequest(user.id, tripRequestId);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/departures",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const body = PublishSharedDepartureSchema.parse(req.body);
+    const result = await publishDeparture(user.id, body);
+    res.status(201).json(result);
+  }),
+);
+
+router.get(
+  "/departures/mine",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const result = await listDriverDepartures(user.id);
+    res.status(200).json(result);
+  }),
+);
+
+router.get(
+  "/departures/:departureId",
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new AppError("UNAUTHORIZED", 401, "Authentication required.");
     const { departureId } = DepartureIdParamsSchema.parse(req.params);
-    const result = await getDepartureDetail(departureId, user.id);
+    if (req.user.role === "driver") {
+      const result = await getDriverDepartureDetail(req.user.id, departureId);
+      res.status(200).json(result);
+      return;
+    }
+    if (req.user.role === "passenger") {
+      const result = await getDepartureDetail(departureId, req.user.id);
+      res.status(200).json(result);
+      return;
+    }
+    throw new AppError("FORBIDDEN", 403, "Passengers and drivers only.");
+  }),
+);
+
+router.patch(
+  "/departures/:departureId/status",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { departureId } = DepartureIdParamsSchema.parse(req.params);
+    const body = UpdateDepartureStatusSchema.parse(req.body);
+    const result = await updateDriverDepartureStatus(user.id, departureId, body.status);
     res.status(200).json(result);
   }),
 );

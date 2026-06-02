@@ -27,7 +27,38 @@ export async function releaseExpiredSeatHolds(departureId: string): Promise<void
   });
 }
 
-async function loadBookableDeparture(departureId: string) {
+export type DepartureSeatOccupantDto = {
+  passengerId: string;
+  name: string | null;
+  status: string;
+  reservedUntil: string | null;
+};
+
+export type DepartureSeatDto = {
+  seatNumber: number;
+  status: string;
+  isMine: boolean;
+  row: number | null;
+  col: number | null;
+  occupant?: DepartureSeatOccupantDto;
+};
+
+export type SharedDepartureDetailDto = {
+  id: string;
+  departureAt: string;
+  pricePerSeat: number;
+  capacity: number;
+  status: string;
+  routeLabel: string;
+  pickupLocation: { id: string; slug: string; name: string };
+  dropoffLocation: { id: string; slug: string; name: string };
+  seatSummary: { paid: number; reserved: number; available: number };
+  seats: DepartureSeatDto[];
+};
+
+type Viewer = { id: string; role: "passenger" | "driver" };
+
+async function loadDepartureForPassengerBooking(departureId: string) {
   await releaseExpiredSeatHolds(departureId);
   const departure = await prisma.sharedDeparture.findUnique({
     where: { id: departureId },
@@ -46,49 +77,119 @@ async function loadBookableDeparture(departureId: string) {
   return departure;
 }
 
-export type DepartureSeatDto = {
-  seatNumber: number;
-  status: string;
-  isMine: boolean;
-  row: number | null;
-  col: number | null;
-};
+async function loadDepartureForView(departureId: string, viewer: Viewer) {
+  await releaseExpiredSeatHolds(departureId);
+  const departure = await prisma.sharedDeparture.findUnique({
+    where: { id: departureId },
+    include: {
+      pickupLocation: { select: corridorLocationBriefSelect },
+      dropoffLocation: { select: corridorLocationBriefSelect },
+      seats: {
+        orderBy: { seatNumber: "asc" },
+        include: {
+          reservedBy: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+  if (!departure) {
+    throw new AppError("DEPARTURE_NOT_FOUND", 404, "Departure not found.");
+  }
+  if (viewer.role === "driver" && departure.driverId !== viewer.id) {
+    throw new AppError("FORBIDDEN", 403, "This departure belongs to another driver.");
+  }
+  return departure;
+}
 
-export type SharedDepartureDetailDto = {
-  id: string;
-  departureAt: string;
-  pricePerSeat: number;
-  capacity: number;
-  status: string;
-  routeLabel: string;
-  pickupLocation: { id: string; slug: string; name: string };
-  dropoffLocation: { id: string; slug: string; name: string };
-  seats: DepartureSeatDto[];
-};
+function seatSummary(seats: { status: string }[]) {
+  let paid = 0;
+  let reserved = 0;
+  let available = 0;
+  for (const s of seats) {
+    if (s.status === "paid") paid += 1;
+    else if (s.status === "reserved") reserved += 1;
+    else if (s.status === "available") available += 1;
+  }
+  return { paid, reserved, available };
+}
 
+function mapSeats(
+  seats: Array<{
+    seatNumber: number;
+    status: string;
+    row: number | null;
+    col: number | null;
+    reservedById: string | null;
+    expiresAt: Date | null;
+    reservedBy: { id: string; name: string | null } | null;
+  }>,
+  viewer: Viewer,
+): DepartureSeatDto[] {
+  return seats.map((s) => {
+    const base: DepartureSeatDto = {
+      seatNumber: s.seatNumber,
+      status: s.status,
+      isMine: viewer.role === "passenger" && s.reservedById === viewer.id,
+      row: s.row,
+      col: s.col,
+    };
+    if (
+      viewer.role === "driver" &&
+      s.reservedById &&
+      (s.status === "reserved" || s.status === "paid")
+    ) {
+      base.occupant = {
+        passengerId: s.reservedById,
+        name: s.reservedBy?.name ?? null,
+        status: s.status,
+        reservedUntil:
+          s.status === "reserved" && s.expiresAt ? toNairobiIso(s.expiresAt) : null,
+      };
+    }
+    return base;
+  });
+}
+
+function toDepartureDto(
+  departure: Awaited<ReturnType<typeof loadDepartureForView>>,
+  viewer: Viewer,
+): SharedDepartureDetailDto {
+  return {
+    id: departure.id,
+    departureAt: toNairobiIso(departure.departureAt),
+    pricePerSeat: departure.pricePerSeat,
+    capacity: departure.capacity,
+    status: departure.status,
+    routeLabel: `${departure.pickupLocation.name} → ${departure.dropoffLocation.name}`,
+    pickupLocation: departure.pickupLocation,
+    dropoffLocation: departure.dropoffLocation,
+    seatSummary: seatSummary(departure.seats),
+    seats: mapSeats(departure.seats, viewer),
+  };
+}
+
+export async function getDepartureDetailForViewer(
+  departureId: string,
+  viewer: Viewer,
+): Promise<{ departure: SharedDepartureDetailDto }> {
+  const departure = await loadDepartureForView(departureId, viewer);
+  return { departure: toDepartureDto(departure, viewer) };
+}
+
+/** Passenger booking flow — scheduled departures only. */
 export async function getDepartureDetail(
   departureId: string,
-  viewerId: string,
+  passengerId: string,
 ): Promise<{ departure: SharedDepartureDetailDto }> {
-  const departure = await loadBookableDeparture(departureId);
+  const departure = await loadDepartureForPassengerBooking(departureId);
   return {
-    departure: {
-      id: departure.id,
-      departureAt: toNairobiIso(departure.departureAt),
-      pricePerSeat: departure.pricePerSeat,
-      capacity: departure.capacity,
-      status: departure.status,
-      routeLabel: `${departure.pickupLocation.name} → ${departure.dropoffLocation.name}`,
-      pickupLocation: departure.pickupLocation,
-      dropoffLocation: departure.dropoffLocation,
-      seats: departure.seats.map((s) => ({
-        seatNumber: s.seatNumber,
-        status: s.status,
-        isMine: s.reservedById === viewerId,
-        row: s.row,
-        col: s.col,
-      })),
-    },
+    departure: toDepartureDto(
+      {
+        ...departure,
+        seats: departure.seats.map((s) => ({ ...s, reservedBy: null })),
+      },
+      { id: passengerId, role: "passenger" },
+    ),
   };
 }
 
@@ -110,7 +211,7 @@ export async function reserveDepartureSeats(
   passengerId: string,
   seatNumbers: number[],
 ): Promise<{ departure: SharedDepartureDetailDto; reservedUntil: string }> {
-  const departure = await loadBookableDeparture(departureId);
+  const departure = await loadDepartureForPassengerBooking(departureId);
   const seats = normalizeSeatNumbers(seatNumbers, departure.capacity);
   const expiresAt = reserveExpiresAt();
 
@@ -159,7 +260,7 @@ export async function releaseDepartureSeats(
   passengerId: string,
   seatNumbers?: number[],
 ): Promise<{ departure: SharedDepartureDetailDto }> {
-  const departure = await loadBookableDeparture(departureId);
+  const departure = await loadDepartureForPassengerBooking(departureId);
   const where = {
     departureId,
     reservedById: passengerId,
@@ -180,8 +281,7 @@ export async function releaseDepartureSeats(
     },
   });
 
-  const detail = await getDepartureDetail(departureId, passengerId);
-  return { departure: detail.departure };
+  return getDepartureDetail(departureId, passengerId);
 }
 
 export async function assertSeatsHeldForBooking(

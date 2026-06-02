@@ -272,8 +272,75 @@ export const MyTripRequestsResponseSchema = registry.register(
   }),
 );
 
+export const TripRequestIdParamsSchema = z.object({
+  tripRequestId: z.string().trim().min(1).max(64),
+});
+
+export const DriverTripRequestsQuerySchema = z.object({
+  direction: SharedRideDirectionSchema.optional(),
+  corridorLocationSlug: z.string().min(1).optional().openapi({ example: "nyali" }),
+});
+
+export const DriverTripRequestBoardResponseSchema = registry.register(
+  "DriverTripRequestBoardResponse",
+  z.object({
+    items: z.array(
+      z.object({
+        tripRequest: TripRequestDtoSchema,
+        poolSeatsTotal: z.number().int(),
+        passengerCount: z.number().int(),
+      }),
+    ),
+  }),
+);
+
+const SharedDepartureBriefSchema = z.object({
+  id: z.string(),
+  departureAt: eatDatetimeSchema,
+  pricePerSeat: z.number().int(),
+  capacity: z.number().int(),
+  status: z.string(),
+  routeLabel: z.string(),
+  driverId: z.string(),
+  sgrScheduleSlotId: z.string().nullable(),
+});
+
+export const JoinTripRequestResponseSchema = registry.register(
+  "JoinTripRequestResponse",
+  z.object({
+    tripRequest: TripRequestDtoSchema,
+    departure: SharedDepartureBriefSchema,
+  }),
+);
+
+export const PublishSharedDepartureSchema = registry.register(
+  "PublishSharedDeparture",
+  z
+    .object({
+      sgrScheduleSlotId: z.string().min(1),
+      departureAt: eatDatetimeSchema.openapi({
+        example: "2026-06-02T06:00:00+03:00",
+        description: "Scheduled van departure (EAT).",
+      }),
+      pricePerSeat: z.number().int().min(1).optional(),
+    })
+    .strict(),
+);
+
+export const PublishSharedDepartureResponseSchema = registry.register(
+  "PublishSharedDepartureResponse",
+  z.object({ departure: SharedDepartureBriefSchema }),
+);
+
 export const DepartureIdParamsSchema = z.object({
   departureId: z.string().trim().min(1).max(64),
+});
+
+const DepartureSeatOccupantSchema = z.object({
+  passengerId: z.string(),
+  name: z.string().nullable(),
+  status: z.string(),
+  reservedUntil: eatDatetimeSchema.nullable(),
 });
 
 const DepartureSeatDtoSchema = z.object({
@@ -282,6 +349,15 @@ const DepartureSeatDtoSchema = z.object({
   isMine: z.boolean(),
   row: z.number().int().nullable(),
   col: z.number().int().nullable(),
+  occupant: DepartureSeatOccupantSchema.optional().openapi({
+    description: "Present on driver departure detail for reserved/paid seats.",
+  }),
+});
+
+const DepartureSeatSummarySchema = z.object({
+  paid: z.number().int(),
+  reserved: z.number().int(),
+  available: z.number().int(),
 });
 
 export const SharedDepartureDetailSchema = registry.register(
@@ -295,7 +371,34 @@ export const SharedDepartureDetailSchema = registry.register(
     routeLabel: z.string(),
     pickupLocation: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
     dropoffLocation: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+    seatSummary: DepartureSeatSummarySchema,
     seats: z.array(DepartureSeatDtoSchema),
+  }),
+);
+
+export const UpdateDepartureStatusSchema = registry.register(
+  "UpdateDepartureStatus",
+  z
+    .object({
+      status: z.enum(["boarding", "completed", "cancelled"]),
+    })
+    .strict(),
+);
+
+export const DriverDeparturesListResponseSchema = registry.register(
+  "DriverDeparturesListResponse",
+  z.object({
+    departures: z.array(
+      z.object({
+        id: z.string(),
+        departureAt: eatDatetimeSchema,
+        pricePerSeat: z.number().int(),
+        capacity: z.number().int(),
+        status: z.string(),
+        routeLabel: z.string(),
+        seatSummary: DepartureSeatSummarySchema,
+      }),
+    ),
   }),
 );
 
@@ -546,11 +649,141 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
+  path: "/api/shared-rides/trip-requests",
+  tags: ["Shared rides"],
+  summary: "Driver board — open trip request pools",
+  description:
+    "Lists open pooled passenger intents (future departure, active reservations). " +
+    "Sorted by soonest van departure, then pool size. Driver-only.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { query: DriverTripRequestsQuerySchema },
+  responses: {
+    200: {
+      description: "Open pools for drivers.",
+      content: { "application/json": { schema: DriverTripRequestBoardResponseSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/trip-requests/{tripRequestId}/join",
+  tags: ["Shared rides"],
+  summary: "Driver claims a trip request pool",
+  description:
+    "First-join-wins: creates a `SharedDeparture`, links the pool (`matched`), generates seats from vehicle capacity. " +
+    "Notifies passengers in-app + SMS (`shared_ride_matched`) to choose seats and pay. Requires registered vehicle.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { params: TripRequestIdParamsSchema },
+  responses: {
+    200: {
+      description: "Departure published from pool.",
+      content: { "application/json": { schema: JoinTripRequestResponseSchema } },
+    },
+    403: {
+      description: "Driver profile or vehicle missing (`DRIVER_PROFILE_REQUIRED`, `VEHICLE_REQUIRED`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    409: {
+      description:
+        "Pool not open, empty, or already claimed (`TRIP_REQUEST_NOT_OPEN`, `TRIP_REQUEST_ALREADY_CLAIMED`, …).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    404: {
+      description: "Trip request not found (`TRIP_REQUEST_NOT_FOUND`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/departures",
+  tags: ["Shared rides"],
+  summary: "Driver publishes a scheduled departure",
+  description:
+    "Creates a van run from a timetable slot without an existing passenger pool. " +
+    "Seat count follows driver vehicle capacity (minimum 4). Driver-only.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: PublishSharedDepartureSchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Departure created.",
+      content: { "application/json": { schema: PublishSharedDepartureResponseSchema } },
+    },
+    403: {
+      description: "Driver profile or vehicle missing.",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    404: {
+      description: "Schedule slot not found (`SGR_SLOT_NOT_FOUND`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/shared-rides/departures/mine",
+  tags: ["Shared rides"],
+  summary: "Driver — my upcoming departures",
+  description:
+    "Lists the driver's active shared departures (`scheduled`, `boarding`) with seat fill summary.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  responses: {
+    200: {
+      description: "Driver departures.",
+      content: { "application/json": { schema: DriverDeparturesListResponseSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/shared-rides/departures/{departureId}/status",
+  tags: ["Shared rides"],
+  summary: "Driver — update departure lifecycle",
+  description:
+    "Transitions: `scheduled` → `boarding` | `cancelled` | `completed`; `boarding` → `completed` | `cancelled`.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: DepartureIdParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: UpdateDepartureStatusSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated departure with seat map.",
+      content: { "application/json": { schema: SharedDepartureDetailResponseSchema } },
+    },
+    409: {
+      description: "Invalid transition (`INVALID_DEPARTURE_STATUS`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "get",
   path: "/api/shared-rides/departures/{departureId}",
   tags: ["Shared rides"],
   summary: "Departure detail with seat map",
   description:
-    "Scheduled van, route, and per-seat status. `isMine` is true when you hold a non-expired reservation.",
+    "Passenger: `isMine` on held seats. Driver (owner): `occupant` on reserved/paid seats + `seatSummary` counts.",
   security: [{ bearerAuth: [] }, { cookieAuth: [] }],
   request: { params: DepartureIdParamsSchema },
   responses: {

@@ -47,9 +47,13 @@ Control doc: [SHARED_RIDES_AUDIT.md](./SHARED_RIDES_AUDIT.md).
 
 ## Phase 4 — Driver supply
 
-- [ ] `GET /api/shared-rides/trip-requests` (driver board)
-- [ ] `POST /api/shared-rides/trip-requests/:id/join`
-- [ ] `POST /api/shared-rides/departures` (driver publish)
+- [x] `GET /api/shared-rides/trip-requests` (driver board)
+- [x] `POST /api/shared-rides/trip-requests/:id/join` (+ in-app + SMS `shared_ride_matched`)
+- [x] `POST /api/shared-rides/departures` (driver publish)
+- [x] `GET /api/shared-rides/departures/mine` (driver list + seat fill)
+- [x] `GET /api/shared-rides/departures/:id` (driver seat map with occupants)
+- [x] `PATCH /api/shared-rides/departures/:id/status` (boarding / completed / cancelled)
+- [ ] Mobile: driver board + join + publish + lifecycle screens
 
 ---
 

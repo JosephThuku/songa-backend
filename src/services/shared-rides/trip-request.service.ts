@@ -152,7 +152,7 @@ export type CreateTripRequestResult = {
 
 export type MyTripRequestItemDto = CreateTripRequestResult;
 
-function toTripRequestDto(tripRequest: SharedTripRequestWithRelations): TripRequestDto {
+export function toTripRequestDto(tripRequest: SharedTripRequestWithRelations): TripRequestDto {
   const slot = toSlotRef(tripRequest.sgrScheduleSlot);
   const zone = tripRequest.corridorLocation;
   return {
