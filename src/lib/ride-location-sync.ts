@@ -29,6 +29,8 @@ export function phaseFromPickupDistance(
   currentPhase: RidePhase,
 ): RidePhase | null {
   if (!PICKUP_TRACKING_PHASES.includes(currentPhase)) return null;
+  // Driver explicitly marked arrived; GPS must not regress phase until trip starts.
+  if (currentPhase === RidePhase.driver_arrived) return null;
   if (pickupDistanceKm <= DRIVER_ARRIVING_KM) return RidePhase.driver_arriving;
   if (currentPhase === RidePhase.driver_accepted) return RidePhase.driver_en_route;
   return RidePhase.driver_en_route;

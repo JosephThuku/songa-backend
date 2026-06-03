@@ -113,6 +113,33 @@ describe("syncActiveRideFromDriverLocation — phaseFromPickupDistance", () => {
     expect(updated.driverLocation).not.toBeNull();
   });
 
+  it("preserves driver_arrived when GPS updates (no regression to driver_arriving)", async () => {
+    const passenger = await createPassenger();
+    const driver = await createDriver();
+    const ride = await prisma.ride.create({
+      data: {
+        id: `ride_${cuid()}`,
+        passengerId: passenger.id,
+        driverId: driver.id,
+        phase: "driver_arrived",
+        bookingMode: BookingMode.pay_on_arrival,
+        prepaid: false,
+        price: 500,
+        currency: "KES",
+        etaMinutes: 0,
+        distanceKm: 0,
+        pickup: PICKUP,
+        dropoff: { label: "JKIA", lat: -1.3192, lng: 36.9278 },
+      },
+    });
+
+    await syncActiveRideFromDriverLocation(ride.id, { lat: PICKUP.lat, lng: PICKUP.lng });
+
+    const updated = await prisma.ride.findUniqueOrThrow({ where: { id: ride.id } });
+    expect(updated.phase).toBe("driver_arrived");
+    expect(updated.etaMinutes).toBe(1);
+  });
+
   it("preserves driver_arriving phase when driver remains close", async () => {
     const passenger = await createPassenger();
     const ride = await createRideInPhase(passenger.id, "driver_arriving");
