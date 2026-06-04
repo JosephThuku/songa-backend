@@ -274,12 +274,14 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       id: true,
       driverProfile: {
         select: {
-          vehicle: { select: { seats: true, seatLayout: true } },
+          vehicleId: true,
+          vehicle: { select: { id: true, seats: true, seatLayout: true } },
         },
       },
     },
   });
   const vehicle = vanDriver?.driverProfile?.vehicle;
+  const vehicleId = vanDriver?.driverProfile?.vehicleId ?? vehicle?.id ?? null;
   const layoutSeats = vehicle
     ? generateDepartureSeatsFromVehicle({
         seats: vehicle.seats,
@@ -337,6 +339,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
         departureAt: row.departureAt,
         pricePerSeat: row.pricePerSeat,
         driverId: row.driverId,
+        vehicleId,
         capacity,
         status: "scheduled",
       },
@@ -349,6 +352,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
         pricePerSeat: row.pricePerSeat,
         capacity,
         driverId: row.driverId,
+        vehicleId,
         status: "scheduled",
       },
     });

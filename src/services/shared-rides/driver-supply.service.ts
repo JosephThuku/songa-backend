@@ -10,6 +10,7 @@ import {
   type SgrScheduleSlotWithLocations,
 } from "./shared-rides-prisma.js";
 import { assertDriverPublishDepartureAt } from "./publish-departure-time.js";
+import { assertVehicleEligibleForSharedDeparture } from "./shared-vehicle-eligibility.js";
 import { toTripRequestDto, type TripRequestDto } from "./trip-request.service.js";
 
 const tripRequestInclude = {
@@ -168,7 +169,9 @@ export async function joinTripRequest(
 
     const slot = tripRequest.sgrScheduleSlot as SgrScheduleSlotWithLocations;
     const departureId = `dep_${cuid()}`;
-    const seatRows = buildDepartureSeatRows(departureId, profile.vehicle!);
+    const vehicle = profile.vehicle!;
+    const seatRows = buildDepartureSeatRows(departureId, vehicle);
+    assertVehicleEligibleForSharedDeparture(vehicle, seatRows.length);
     if (seatRows.length < tripRequest.seatsRequested) {
       throw new AppError(
         "VEHICLE_CAPACITY_TOO_SMALL",
@@ -181,6 +184,7 @@ export async function joinTripRequest(
       data: {
         id: departureId,
         driverId,
+        vehicleId: vehicle.id,
         pickupLocationId: slot.pickupLocation.id,
         dropoffLocationId: slot.dropoffLocation.id,
         sgrScheduleSlotId: slot.id,
@@ -261,13 +265,16 @@ export async function publishDeparture(
 
   const pricePerSeat = input.pricePerSeat ?? slot.suggestedPricePerSeat;
   const departureId = `dep_${cuid()}`;
-  const seatRows = buildDepartureSeatRows(departureId, profile.vehicle!);
+  const vehicle = profile.vehicle!;
+  const seatRows = buildDepartureSeatRows(departureId, vehicle);
+  assertVehicleEligibleForSharedDeparture(vehicle, seatRows.length);
 
   const departure = await prisma.$transaction(async (tx) => {
     const created = await tx.sharedDeparture.create({
       data: {
         id: departureId,
         driverId,
+        vehicleId: vehicle.id,
         pickupLocationId: slot.pickupLocationId,
         dropoffLocationId: slot.dropoffLocationId,
         sgrScheduleSlotId: slot.id,

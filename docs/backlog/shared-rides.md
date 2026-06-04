@@ -49,6 +49,13 @@ When driver A’s van is full, refer caller to driver B who publishes/joins a tr
 
 ---
 
+## Departure vehicle snapshot — done in API
+
+- `SharedDeparture.vehicleId` set on publish/join from driver’s registered vehicle.
+- Eligibility: default min **8** bookable seats, types **Van** / **Minibus** (`SHARED_RIDES_MIN_BOOKABLE_SEATS`, `SHARED_RIDES_ALLOWED_VEHICLE_TYPES`).
+
+---
+
 ## Implemented in current PR (for reference)
 
 - Pickup pin + van GPS on departure  
