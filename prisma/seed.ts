@@ -353,7 +353,22 @@ async function main() {
     zones: sharedRides.zoneSlugs,
     slots: sharedRides.slotCount,
     demoDepartures: sharedRides.demoDepartures,
+    nyaliMorningBoarding: sharedRides.nyaliMorningBoarding,
   });
+
+  if (sharedRides.nyaliMorningBoarding.passengerCount > 0) {
+    console.log("\nNyali morning van — paid passengers (driver map QA, seats 3–8):");
+    console.log("  Departure: dep_seed_nyali_sgr_morning (Nyali → SGR, ~06:00 van)");
+    console.log(`  Driver:    Faith Njoki ${"+254712345681"} (${SEED_PASSWORD})`);
+    console.log("  Passengers (password SongaDev1 for all):");
+    console.log("    +254712000201  Asha Mwangi     City Mall Nyali");
+    console.log("    +254712000202  Brian Otieno    Kongowea Market");
+    console.log("    +254712000203  Caro Wanjiru    Nyali Beach Hotel");
+    console.log("    +254712000204  Daniel Kamau    Nyali Bridge");
+    console.log("    +254712000205  Esther Njoki    Prestige Plaza Nyali");
+    console.log("    +254712000206  Frank Ali       Shell Nyali");
+    console.log("  Driver app: open shared departure manifest + boarding map.\n");
+  }
 
   console.log("Seed complete:", {
     passengerId: passenger.id,

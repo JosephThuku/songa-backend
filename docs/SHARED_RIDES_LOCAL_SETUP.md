@@ -82,6 +82,25 @@ Two **pre-published vans** for testing seat map + booking without a driver joini
 
 Seats use **A1-style labels** when generated from layout (14 bookable seats on demo vans).
 
+### Nyali morning van — multi-pickup driver map QA
+
+`dep_seed_nyali_sgr_morning` also gets **six paid passengers** (seats **3–8**), each with a **different pickup pin** in Nyali for testing the driver manifest + boarding map.
+
+| Phone | Name | Pickup pin |
+|-------|------|------------|
+| `+254712000201` | Asha Mwangi | City Mall Nyali |
+| `+254712000202` | Brian Otieno | Kongowea Market |
+| `+254712000203` | Caro Wanjiru | Nyali Beach Hotel |
+| `+254712000204` | Daniel Kamau | Nyali Bridge |
+| `+254712000205` | Esther Njoki | Prestige Plaza Nyali |
+| `+254712000206` | Frank Ali | Shell Nyali |
+
+- **Driver for this van:** Faith Njoki `+254712345681` (14-seat minibus)  
+- **Seed file:** `prisma/seeds/shared-rides-nyali-morning-boarding.ts`  
+- Re-run: `npm run db:seed` (idempotent)
+
+**Driver app:** log in as Faith → open the Nyali → SGR morning departure → manifest / boarding map should show six pins spread along the coast.
+
 ### What is *not* seeded
 
 - **Matched** departures from driver join — use driver board + join on `trip_req_seed_cbd_express`  

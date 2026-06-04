@@ -11,6 +11,7 @@ import {
   COAST_CORRIDOR_ZONES,
   SGR_MIRITINI,
 } from "./coast-corridor-locations.js";
+import { seedNyaliMorningBoardingPassengers } from "./shared-rides-nyali-morning-boarding.js";
 
 const ZONE_PRICING: Record<
   (typeof COAST_CORRIDOR_ZONES)[number]["slug"],
@@ -212,6 +213,7 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
 
   const demoDepartures = await seedDemoDepartures(prisma, sgr.id);
   const demoTripRequest = await seedDemoOpenTripRequest(prisma, sgr.id);
+  const nyaliMorningBoarding = await seedNyaliMorningBoardingPassengers(prisma);
 
   return {
     sgrLocationId: sgr.id,
@@ -219,6 +221,7 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
     slotCount,
     demoDepartures,
     demoTripRequest,
+    nyaliMorningBoarding,
     qa: {
       withDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=nyali",
       withoutDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=mombasa-cbd",
@@ -342,7 +345,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
           seatLabel: seat.seatLabel,
           row: seat.row,
           col: seat.col,
-          status: i < 2 && seat.seatNumber <= 2 ? "paid" : seat.status,
+          status: seat.status,
         })),
       });
     }
