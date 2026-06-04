@@ -50,5 +50,31 @@ describe("shared rides call-in booking", () => {
     });
     expect(user).toBeTruthy();
     expect(user?.passwordHash).toBeNull();
+
+    const payInvite = await request(app)
+      .post(
+        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/6/pay-invite`,
+      )
+      .set("Authorization", `Bearer ${driver.sessionToken}`);
+    expect(payInvite.status).toBe(200);
+    expect(payInvite.body.payInviteUrl).toContain("token=");
+    expect(payInvite.body.passengerPhone).toBe(CALLER_PHONE);
+
+    const markCash = await request(app)
+      .post(
+        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/6/mark-paid-cash`,
+      )
+      .set("Authorization", `Bearer ${driver.sessionToken}`);
+    expect(markCash.status).toBe(200);
+
+    const seat = await prisma.sharedDepartureSeat.findFirst({
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 6 },
+    });
+    expect(seat?.status).toBe("paid");
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: callIn.body.bookingId },
+    });
+    expect(booking?.status).toBe("paid");
   });
 });

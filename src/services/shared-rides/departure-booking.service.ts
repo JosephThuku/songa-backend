@@ -150,3 +150,87 @@ export async function createSharedDepartureBooking(
     },
   };
 }
+
+export type MySharedBookingItemDto = {
+  booking: SharedDepartureBookingDto;
+  departure: {
+    id: string;
+    departureAt: string;
+    routeLabel: string;
+    status: string;
+  };
+};
+
+function bookingRowToDto(row: {
+  id: string;
+  product: string;
+  sharedDepartureId: string | null;
+  status: string;
+  seats: string | null;
+  subtotal: number;
+  platformFee: number;
+  total: number;
+  pickup: Prisma.JsonValue;
+  dropoff: Prisma.JsonValue;
+  createdAt: Date;
+}): SharedDepartureBookingDto {
+  const seatNumbers = (row.seats ?? "")
+    .split(",")
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isFinite(value));
+  return {
+    id: row.id,
+    product: "shared_sgr",
+    sharedDepartureId: row.sharedDepartureId ?? "",
+    status: row.status,
+    seats: seatNumbers,
+    subtotal: row.subtotal,
+    platformFee: row.platformFee,
+    total: row.total,
+    currency: "KES",
+    pickup: row.pickup as PlaceDto,
+    dropoff: row.dropoff as PlaceDto,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** Upcoming and recent shared van bookings for the signed-in passenger (Trips tab). */
+export async function listMySharedBookings(
+  passengerId: string,
+): Promise<{ bookings: MySharedBookingItemDto[] }> {
+  const rows = await prisma.booking.findMany({
+    where: {
+      passengerId,
+      product: "shared_sgr",
+      status: { in: ["paid", "pending_payment"] },
+      sharedDepartureId: { not: null },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    include: {
+      sharedDeparture: {
+        include: {
+          pickupLocation: true,
+          dropoffLocation: true,
+        },
+      },
+    },
+  });
+
+  const bookings: MySharedBookingItemDto[] = [];
+  for (const row of rows) {
+    const departure = row.sharedDeparture;
+    if (!departure || !row.sharedDepartureId) continue;
+    bookings.push({
+      booking: bookingRowToDto(row),
+      departure: {
+        id: departure.id,
+        departureAt: departure.departureAt.toISOString(),
+        routeLabel: `${departure.pickupLocation.name} → ${departure.dropoffLocation.name}`,
+        status: departure.status,
+      },
+    });
+  }
+
+  return { bookings };
+}

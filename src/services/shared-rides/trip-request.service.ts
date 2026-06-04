@@ -136,6 +136,7 @@ export type TripRequestDto = {
   trainLabel: string;
   pricePerSeat: number;
   notes: string | null;
+  matchedDepartureId: string | null;
 };
 
 export type TripRequestReservationDto = {
@@ -169,6 +170,7 @@ export function toTripRequestDto(tripRequest: SharedTripRequestWithRelations): T
     trainLabel: `${trainServiceLabel(slot.trainService)} · ${tripRequest.direction === "to_sgr" ? "departs Miritini" : "arrives Miritini"} ${slot.sgrEventTime}`,
     pricePerSeat: slot.suggestedPricePerSeat,
     notes: tripRequest.notes,
+    matchedDepartureId: tripRequest.matchedDepartureId,
   };
 }
 

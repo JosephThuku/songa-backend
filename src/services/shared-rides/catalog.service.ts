@@ -184,7 +184,25 @@ export async function searchDepartures(filters: {
     include: {
       pickupLocation: { select: locationSelect },
       dropoffLocation: { select: locationSelect },
-      driver: { select: { id: true, name: true, phone: true, rating: true } },
+      driver: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          rating: true,
+          driverProfile: {
+            select: {
+              vehicle: {
+                select: {
+                  type: true,
+                  registration: true,
+                  color: true,
+                },
+              },
+            },
+          },
+        },
+      },
       seats: { select: { status: true } },
       sgrScheduleSlot: true,
     },
@@ -202,7 +220,18 @@ export async function searchDepartures(filters: {
       availableSeats: capacity - booked,
       routeLabel: `${d.pickupLocation.name} → ${d.dropoffLocation.name}`,
       driver: d.driver
-        ? { id: d.driver.id, name: d.driver.name, rating: d.driver.rating }
+        ? {
+            id: d.driver.id,
+            name: d.driver.name,
+            rating: d.driver.rating,
+            vehicle: d.driver.driverProfile?.vehicle
+              ? {
+                  type: d.driver.driverProfile.vehicle.type,
+                  registration: d.driver.driverProfile.vehicle.registration,
+                  color: d.driver.driverProfile.vehicle.color,
+                }
+              : null,
+          }
         : null,
       sgrScheduleSlotId: d.sgrScheduleSlotId,
     };

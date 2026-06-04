@@ -207,4 +207,78 @@ describe("Shared rides driver supply (Phase 4)", () => {
       routeLabel: expect.stringContaining("Diani"),
     });
   });
+
+  it("driver can publish earlier than the timetable van time", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+
+    const driver = await createAuthSession(app, DRIVER_A_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.sessionToken, { type: "Van", seats: 10 });
+
+    const slot = await prisma.sgrScheduleSlot.findFirst({
+      where: {
+        direction: "to_sgr",
+        pickupLocation: { slug: "nyali" },
+        vanDepartureTime: "06:00",
+      },
+    });
+    if (!slot) throw new Error("nyali 06:00 slot missing");
+
+    const parts = getNairobiParts(new Date());
+    const vanAt = nairobiLocalToUtc(parts, slot.vanDepartureTime, 1);
+    const earlyAt = new Date(vanAt.getTime() - 30 * 60_000);
+
+    const published = await request(app)
+      .post("/api/shared-rides/departures")
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({
+        sgrScheduleSlotId: slot.id,
+        departureAt: toNairobiIso(earlyAt),
+        pricePerSeat: 350,
+      });
+    expect(published.status).toBe(201);
+    expect(new Date(published.body.departure.departureAt).getTime()).toBe(earlyAt.getTime());
+  });
+
+  it("driver can cancel a boarding departure and release seats", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+
+    const passenger = await createAuthSession(app, PASSENGER_PHONE, "passenger");
+    const driver = await createAuthSession(app, DRIVER_A_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.sessionToken, { type: "Van", seats: 14 });
+
+    const { body: tripBody } = await nyaliToSgrTripRequestBody();
+    const created = await request(app)
+      .post("/api/shared-rides/trip-requests")
+      .set("Authorization", `Bearer ${passenger.sessionToken}`)
+      .send(tripBody);
+    const tripRequestId = created.body.tripRequest.id as string;
+
+    const joined = await request(app)
+      .post(`/api/shared-rides/trip-requests/${tripRequestId}/join`)
+      .set("Authorization", `Bearer ${driver.sessionToken}`);
+    const depId = joined.body.departure.id as string;
+
+    await request(app)
+      .patch(`/api/shared-rides/departures/${depId}/status`)
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({ status: "boarding" });
+
+    await request(app)
+      .post(`/api/shared-rides/departures/${depId}/seats/reserve`)
+      .set("Authorization", `Bearer ${passenger.sessionToken}`)
+      .send({ seatNumbers: [4] });
+
+    const cancelled = await request(app)
+      .patch(`/api/shared-rides/departures/${depId}/status`)
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({ status: "cancelled" });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.departure.status).toBe("cancelled");
+    expect(cancelled.body.departure.seatSummary.reserved).toBe(0);
+
+    const seat4 = cancelled.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 4);
+    expect(seat4?.status).toBe("available");
+  });
 });

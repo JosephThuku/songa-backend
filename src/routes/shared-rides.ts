@@ -13,6 +13,7 @@ import {
   CreateSharedDepartureBookingSchema,
   CreateTripRequestSchema,
   DepartureIdParamsSchema,
+  DepartureSeatNumberParamsSchema,
   DeparturesSearchQuerySchema,
   DriverTripRequestsQuerySchema,
   PublishSharedDepartureSchema,
@@ -36,7 +37,10 @@ import {
   updateDriverDepartureStatus,
 } from "../services/shared-rides/driver-departure.service.js";
 import { updateDepartureDriverLocation } from "../services/shared-rides/departure-location.service.js";
-import { createSharedDepartureBooking } from "../services/shared-rides/departure-booking.service.js";
+import {
+  createSharedDepartureBooking,
+  listMySharedBookings,
+} from "../services/shared-rides/departure-booking.service.js";
 import {
   getDepartureDetail,
   releaseDepartureSeats,
@@ -52,6 +56,10 @@ import {
 } from "../services/shared-rides/catalog.service.js";
 import { createTripRequest, listMyTripRequests } from "../services/shared-rides/trip-request.service.js";
 import { createCallInBooking } from "../services/shared-rides/call-in-booking.service.js";
+import {
+  driverMarkSeatPaidCash,
+  driverSeatPayInvite,
+} from "../services/shared-rides/driver-seat-payment.service.js";
 import { getPayInviteSummary, payViaInvite } from "../services/shared-rides/guest-pay.service.js";
 import {
   CallInBookingSchema,
@@ -293,6 +301,15 @@ router.post(
   }),
 );
 
+router.get(
+  "/bookings/mine",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    res.status(200).json(await listMySharedBookings(user.id));
+  }),
+);
+
 router.post(
   "/departures/:departureId/bookings",
   requireRole("passenger"),
@@ -314,6 +331,28 @@ router.post(
     const body = CallInBookingSchema.parse(req.body);
     const result = await createCallInBooking(user.id, departureId, body);
     res.status(201).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/seats/:seatNumber/pay-invite",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { departureId, seatNumber } = DepartureSeatNumberParamsSchema.parse(req.params);
+    const result = await driverSeatPayInvite(user.id, departureId, seatNumber);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/departures/:departureId/seats/:seatNumber/mark-paid-cash",
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const user = driverOrThrow(req);
+    const { departureId, seatNumber } = DepartureSeatNumberParamsSchema.parse(req.params);
+    const result = await driverMarkSeatPaidCash(user.id, departureId, seatNumber);
+    res.status(200).json(result);
   }),
 );
 

@@ -179,6 +179,13 @@ const SharedDepartureSearchItemSchema = z.object({
       id: z.string(),
       name: z.string().nullable(),
       rating: z.number(),
+      vehicle: z
+        .object({
+          type: z.string(),
+          registration: z.string(),
+          color: z.string(),
+        })
+        .nullable(),
     })
     .nullable(),
   sgrScheduleSlotId: z.string().nullable(),
@@ -351,10 +358,37 @@ const DriverLocationSchema = z.object({
 const DepartureSeatOccupantSchema = z.object({
   passengerId: z.string(),
   name: z.string().nullable(),
+  phone: z.string().nullable().openapi({
+    description: "Passenger phone (driver departure detail only).",
+  }),
   status: z.string(),
   reservedUntil: eatDatetimeSchema.nullable(),
   pickupPin: PickupPinSchema.nullable(),
 });
+
+export const DepartureSeatNumberParamsSchema = z.object({
+  departureId: z.string().trim().min(1).max(64),
+  seatNumber: z.coerce.number().int().min(1).max(99),
+});
+
+export const DriverSeatPayInviteResponseSchema = registry.register(
+  "DriverSeatPayInviteResponse",
+  z.object({
+    payInviteUrl: z.string().url(),
+    payInviteToken: z.string(),
+    reservedUntil: eatDatetimeSchema,
+    passengerPhone: z.string(),
+    passengerName: z.string().nullable(),
+  }),
+);
+
+export const DriverMarkSeatPaidCashResponseSchema = registry.register(
+  "DriverMarkSeatPaidCashResponse",
+  z.object({
+    departureId: z.string(),
+    seatNumber: z.number().int(),
+  }),
+);
 
 const DepartureSeatDtoSchema = z.object({
   seatNumber: z.number().int(),
@@ -374,6 +408,24 @@ const DepartureSeatSummarySchema = z.object({
   available: z.number().int(),
 });
 
+const SharedDepartureDriverSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  phone: z.string().nullable().openapi({
+    description: "Driver phone — only after the passenger's seats are paid.",
+  }),
+  rating: z.number(),
+  vehicle: z
+    .object({
+      type: z.string(),
+      registration: z.string(),
+      color: z.string(),
+      make: z.string(),
+      model: z.string(),
+    })
+    .nullable(),
+});
+
 export const SharedDepartureDetailSchema = registry.register(
   "SharedDepartureDetail",
   z.object({
@@ -390,6 +442,10 @@ export const SharedDepartureDetailSchema = registry.register(
     driverLocation: DriverLocationSchema.nullable().openapi({
       description:
         "Van GPS while scheduled/boarding. Passengers with a seat see this; drivers see their last post.",
+    }),
+    driver: SharedDepartureDriverSchema.nullable().openapi({
+      description:
+        "Driver contact when the viewer holds a seat; `phone` is set only after the passenger has paid.",
     }),
   }),
 );
@@ -528,6 +584,43 @@ export const CreateSharedDepartureBookingResponseSchema = registry.register(
   "CreateSharedDepartureBookingResponse",
   z.object({ booking: SharedDepartureBookingDtoSchema }),
 );
+
+export const MySharedBookingItemSchema = registry.register(
+  "MySharedBookingItem",
+  z.object({
+    booking: SharedDepartureBookingDtoSchema,
+    departure: z.object({
+      id: z.string(),
+      departureAt: z.string().datetime(),
+      routeLabel: z.string(),
+      status: z.string(),
+    }),
+  }),
+);
+
+export const MySharedBookingsResponseSchema = registry.register(
+  "MySharedBookingsResponse",
+  z.object({
+    bookings: z.array(MySharedBookingItemSchema),
+  }),
+);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/shared-rides/bookings/mine",
+  tags: ["Shared rides"],
+  summary: "List my shared SGR bookings",
+  description:
+    "Paid and pending-payment `shared_sgr` bookings for the signed-in passenger, with departure summary for the Trips tab.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  responses: {
+    200: {
+      description: "Passenger shared bookings.",
+      content: { "application/json": { schema: MySharedBookingsResponseSchema } },
+    },
+    ...authResponses,
+  },
+});
 
 registry.registerPath({
   method: "get",

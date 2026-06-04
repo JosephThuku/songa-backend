@@ -3,6 +3,7 @@ import { decodeBase64Image, saveAvatarFile } from "../lib/avatar-upload.js";
 import { AppError } from "../lib/errors.js";
 import { normalizeEmail } from "../lib/identifier.js";
 import { normalizePhone } from "../lib/phone.js";
+import { getMpesaDisplayConfig } from "../config/mpesa-display.js";
 import { prisma } from "../lib/prisma.js";
 import { toUserDto } from "../lib/responses.js";
 
@@ -314,5 +315,6 @@ export function getSupportInfo() {
       "Cards are charged after the trip, similar to Bolt.",
       "Set your default payment method so checkout is faster.",
     ],
+    mpesa: getMpesaDisplayConfig(),
   };
 }

@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../lib/errors.js";
 import { sharedRidesConfig } from "../../lib/shared-rides-config.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
+import { toDriverEmbedDto } from "../../lib/responses.js";
 import { driverLocationFromDeparture, type DriverLocationDto } from "./departure-driver-location.js";
 import { corridorLocationBriefSelect } from "./shared-rides-prisma.js";
 import {
@@ -41,6 +42,7 @@ export async function releaseExpiredSeatHolds(departureId: string): Promise<void
 export type DepartureSeatOccupantDto = {
   passengerId: string;
   name: string | null;
+  phone: string | null;
   status: string;
   reservedUntil: string | null;
   pickupPin: PickupPinDto | null;
@@ -56,6 +58,20 @@ export type DepartureSeatDto = {
   occupant?: DepartureSeatOccupantDto;
 };
 
+export type SharedDepartureDriverDto = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  rating: number;
+  vehicle: {
+    type: string;
+    registration: string;
+    color: string;
+    make: string;
+    model: string;
+  } | null;
+};
+
 export type SharedDepartureDetailDto = {
   id: string;
   departureAt: string;
@@ -68,6 +84,8 @@ export type SharedDepartureDetailDto = {
   seatSummary: { paid: number; reserved: number; available: number };
   seats: DepartureSeatDto[];
   driverLocation: DriverLocationDto | null;
+  /** Shown when the viewer has a seat; phone only after seats are paid. */
+  driver: SharedDepartureDriverDto | null;
 };
 
 type Viewer = { id: string; role: "passenger" | "driver" };
@@ -101,7 +119,28 @@ async function loadDepartureForView(departureId: string, viewer: Viewer) {
       seats: {
         orderBy: { seatNumber: "asc" },
         include: {
-          reservedBy: { select: { id: true, name: true } },
+          reservedBy: { select: { id: true, name: true, phone: true } },
+        },
+      },
+      driver: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          rating: true,
+          driverProfile: {
+            select: {
+              vehicle: {
+                select: {
+                  type: true,
+                  registration: true,
+                  color: true,
+                  make: true,
+                  model: true,
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -139,7 +178,7 @@ function mapSeats(
     pickupLabel: string | null;
     pickupLat: number | null;
     pickupLng: number | null;
-    reservedBy: { id: string; name: string | null } | null;
+    reservedBy: { id: string; name: string | null; phone: string | null } | null;
   }>,
   viewer: Viewer,
 ): DepartureSeatDto[] {
@@ -160,6 +199,7 @@ function mapSeats(
       base.occupant = {
         passengerId: s.reservedById,
         name: s.reservedBy?.name ?? null,
+        phone: s.reservedBy?.phone ?? null,
         status: s.status,
         reservedUntil:
           s.status === "reserved" && s.expiresAt ? toNairobiIso(s.expiresAt) : null,
@@ -190,6 +230,7 @@ function toDepartureDto(
     seatSummary: seatSummary(departure.seats),
     seats: mapSeats(departure.seats, viewer),
     driverLocation: showDriverLocation ? driverLocationFromDeparture(departure) : null,
+    driver: driverContactForViewer(departure, viewer),
   };
 }
 
@@ -247,6 +288,44 @@ function passengerHasSeat(
     (s) =>
       s.reservedById === passengerId && (s.status === "reserved" || s.status === "paid"),
   );
+}
+
+function passengerHasPaidSeat(
+  seats: Array<{ reservedById: string | null; status: string }>,
+  passengerId: string,
+): boolean {
+  return seats.some((s) => s.reservedById === passengerId && s.status === "paid");
+}
+
+function driverContactForViewer(
+  departure: Awaited<ReturnType<typeof loadDepartureForView>>,
+  viewer: Viewer,
+): SharedDepartureDriverDto | null {
+  if (viewer.role !== "passenger" || !departure.driver) return null;
+  if (!passengerHasSeat(departure.seats, viewer.id)) return null;
+
+  const embed = toDriverEmbedDto(
+    departure.driver,
+    passengerHasPaidSeat(departure.seats, viewer.id),
+  );
+  if (!embed) return null;
+
+  const vehicle = departure.driver.driverProfile?.vehicle ?? null;
+  return {
+    id: embed.id,
+    name: embed.name,
+    phone: embed.phone,
+    rating: embed.rating,
+    vehicle: vehicle
+      ? {
+          type: vehicle.type,
+          registration: vehicle.registration,
+          color: vehicle.color,
+          make: vehicle.make,
+          model: vehicle.model,
+        }
+      : null,
+  };
 }
 
 /** Passenger seat map: booking while scheduled, or track van after reserve/pay through boarding. */

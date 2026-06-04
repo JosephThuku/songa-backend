@@ -40,6 +40,7 @@ export type SharedTripRequestWithRelations = {
   departureDate: string;
   direction: "to_sgr" | "from_sgr";
   sgrScheduleSlotId: string;
+  matchedDepartureId: string | null;
   notes: string | null;
   corridorLocation: CorridorLocationBrief;
   sgrScheduleSlot: SgrScheduleSlotWithLocations;

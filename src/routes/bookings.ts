@@ -30,6 +30,7 @@ router.post(
         passengerId: req.user.id,
         provider: parsed.provider,
         phone: parsed.phone,
+        mpesaChannel: parsed.mpesaChannel,
       }),
     );
   }),

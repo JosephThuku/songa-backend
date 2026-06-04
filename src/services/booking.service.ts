@@ -4,6 +4,7 @@ import { AppError } from "../lib/errors.js";
 import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
 import { prisma } from "../lib/prisma.js";
 import type { PlaceDto } from "../lib/responses.js";
+import { getMpesaDisplayConfig } from "../config/mpesa-display.js";
 import { isMpesaConfigured } from "../config/mpesa.js";
 import { MpesaService } from "./mpesa.service.js";
 import { completeBookingPayment } from "./booking-payment.service.js";
@@ -23,6 +24,7 @@ export interface StartPaymentInput {
   passengerId: string;
   provider: string;
   phone?: string;
+  mpesaChannel?: "stk" | "paybill" | "till";
 }
 
 function placeJson(place: PlaceDto): Prisma.InputJsonObject {
@@ -62,7 +64,7 @@ export async function createBooking(input: CreateBookingInput) {
 }
 
 export async function startPayment(input: StartPaymentInput) {
-  const { bookingId, passengerId, provider, phone } = input;
+  const { bookingId, passengerId, provider, phone, mpesaChannel = "stk" } = input;
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: bookingInclude });
   if (!booking || booking.passengerId !== passengerId) {
     throw new AppError("BOOKING_NOT_FOUND", 404, "Booking not found.");
@@ -108,11 +110,53 @@ export async function startPayment(input: StartPaymentInput) {
   }
 
   if (provider === "mpesa") {
+    const mpesaDisplay = getMpesaDisplayConfig();
+
+    if (mpesaChannel === "paybill" || mpesaChannel === "till") {
+      const number = mpesaChannel === "paybill" ? mpesaDisplay.paybill : mpesaDisplay.till;
+      if (!number) {
+        throw new AppError(
+          "MPESA_MANUAL_NOT_CONFIGURED",
+          503,
+          mpesaChannel === "paybill"
+            ? "Paybill payments are not configured yet. Use STK push or card."
+            : "Till payments are not configured yet. Use STK push or card.",
+        );
+      }
+
+      payment = await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          reference,
+          gatewayResponse: {
+            manual_channel: mpesaChannel,
+            account_reference: reference,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        payment: toPaymentDto(payment),
+        message:
+          mpesaChannel === "paybill"
+            ? "Pay via M-Pesa Paybill using the details below. Seats confirm after payment is received."
+            : "Pay via Buy Goods Till using the details below. Seats confirm after payment is received.",
+        manualPayment: {
+          channel: mpesaChannel,
+          businessName: mpesaDisplay.businessName,
+          number,
+          accountReference: reference,
+          amount: booking.total,
+          currency: "KES",
+        },
+      };
+    }
+
     if (!isMpesaConfigured()) {
       throw new AppError("MPESA_NOT_CONFIGURED", 503, "M-Pesa is not configured on this server.");
     }
     if (!phone?.trim()) {
-      throw new AppError("PHONE_REQUIRED", 400, "Phone number is required for M-Pesa payment.");
+      throw new AppError("PHONE_REQUIRED", 400, "Phone number is required for M-Pesa STK push.");
     }
 
     const mpesa = new MpesaService();

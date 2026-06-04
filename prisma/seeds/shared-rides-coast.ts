@@ -211,12 +211,18 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
   }
 
   const demoDepartures = await seedDemoDepartures(prisma, sgr.id);
+  const demoTripRequest = await seedDemoOpenTripRequest(prisma, sgr.id);
 
   return {
     sgrLocationId: sgr.id,
     zoneSlugs: COAST_CORRIDOR_ZONES.map((z) => z.slug),
     slotCount,
     demoDepartures,
+    demoTripRequest,
+    qa: {
+      withDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=nyali",
+      withoutDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=mombasa-cbd",
+    },
   };
 }
 
@@ -233,6 +239,17 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       direction: "to_sgr",
       trainService: "inter_county",
       sgrEventTime: "08:00",
+    },
+  });
+
+  const nightSlot = await prisma.sgrScheduleSlot.findFirst({
+    where: {
+      pickupLocationId: nyali.id,
+      dropoffLocationId: sgrId,
+      direction: "to_sgr",
+      trainService: "night",
+      sgrEventTime: "22:00",
+      vanDepartureTime: "18:00",
     },
   });
 
@@ -257,6 +274,9 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
   const afternoon = new Date(tomorrow);
   afternoon.setUTCHours(9, 0, 0, 0); // ~12:00 EAT express van
 
+  const nightVan = new Date(tomorrow);
+  nightVan.setUTCHours(15, 0, 0, 0); // ~18:00 EAT van for 22:00 train
+
   const rows = [
     {
       id: "dep_seed_nyali_sgr_morning",
@@ -264,6 +284,15 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       dropoffLocationId: sgrId,
       sgrScheduleSlotId: morningSlot?.id ?? null,
       departureAt: tomorrow,
+      pricePerSeat: 350,
+      driverId: driver?.id ?? null,
+    },
+    {
+      id: "dep_seed_nyali_sgr_night",
+      pickupLocationId: nyali.id,
+      dropoffLocationId: sgrId,
+      sgrScheduleSlotId: nightSlot?.id ?? null,
+      departureAt: nightVan,
       pricePerSeat: 350,
       driverId: driver?.id ?? null,
     },
@@ -321,4 +350,78 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
   }
 
   return count;
+}
+
+/**
+ * Open passenger pool on Mombasa CBD (no demo departure) — for driver board + Path B QA.
+ */
+async function seedDemoOpenTripRequest(prisma: PrismaClient, sgrId: string) {
+  const cbd = await prisma.corridorLocation.findUnique({ where: { slug: "mombasa-cbd" } });
+  const passenger = await prisma.user.findFirst({
+    where: { phone: "+254712000001", role: "passenger" },
+    select: { id: true },
+  });
+  if (!cbd || !passenger) return null;
+
+  const slot = await prisma.sgrScheduleSlot.findFirst({
+    where: {
+      pickupLocationId: cbd.id,
+      dropoffLocationId: sgrId,
+      direction: "to_sgr",
+      trainService: "express",
+      sgrEventTime: "15:00",
+      vanDepartureTime: "12:00",
+    },
+  });
+  if (!slot) return null;
+
+  const departureAt = new Date();
+  departureAt.setUTCDate(departureAt.getUTCDate() + 1);
+  departureAt.setUTCHours(9, 0, 0, 0); // ~12:00 EAT van
+
+  const departureDate = departureAt.toISOString().slice(0, 10);
+
+  const tripRequest = await prisma.sharedTripRequest.upsert({
+    where: { id: "trip_req_seed_cbd_express" },
+    update: {
+      status: "open",
+      requestedDepartureAt: departureAt,
+      departureDate,
+      seatsRequested: 2,
+      matchedDepartureId: null,
+    },
+    create: {
+      id: "trip_req_seed_cbd_express",
+      sgrScheduleSlotId: slot.id,
+      corridorLocationId: cbd.id,
+      direction: "to_sgr",
+      requestedDepartureAt: departureAt,
+      departureDate,
+      seatsRequested: 2,
+      status: "open",
+    },
+  });
+
+  await prisma.sharedTripRequestReservation.upsert({
+    where: {
+      tripRequestId_passengerId: {
+        tripRequestId: tripRequest.id,
+        passengerId: passenger.id,
+      },
+    },
+    update: {
+      seatsRequested: 2,
+      status: "active",
+      pickupNote: "Makadara Road near stage",
+    },
+    create: {
+      tripRequestId: tripRequest.id,
+      passengerId: passenger.id,
+      seatsRequested: 2,
+      status: "active",
+      pickupNote: "Makadara Road near stage",
+    },
+  });
+
+  return tripRequest.id;
 }

@@ -117,9 +117,38 @@ export async function updateDriverDepartureStatus(
     );
   }
 
-  await prisma.sharedDeparture.update({
-    where: { id: departureId },
-    data: { status },
+  await prisma.$transaction(async (tx) => {
+    await tx.sharedDeparture.update({
+      where: { id: departureId },
+      data: { status },
+    });
+
+    if (status === "cancelled") {
+      await tx.sharedDepartureSeat.updateMany({
+        where: {
+          departureId,
+          status: { in: ["reserved", "paid"] },
+        },
+        data: {
+          status: "available",
+          reservedById: null,
+          reservedAt: null,
+          expiresAt: null,
+          bookingId: null,
+          pickupLabel: null,
+          pickupLat: null,
+          pickupLng: null,
+        },
+      });
+
+      await tx.booking.updateMany({
+        where: {
+          sharedDepartureId: departureId,
+          status: { in: ["pending_payment", "paid"] },
+        },
+        data: { status: "cancelled" },
+      });
+    }
   });
 
   return getDepartureDetailForViewer(departureId, { id: driverId, role: "driver" });

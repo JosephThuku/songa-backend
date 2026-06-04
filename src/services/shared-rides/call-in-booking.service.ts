@@ -67,8 +67,12 @@ async function assertDriverOwnsScheduledDeparture(driverId: string, departureId:
   if (!departure || departure.driverId !== driverId) {
     throw new AppError("FORBIDDEN", 403, "This departure belongs to another driver.");
   }
-  if (departure.status !== "scheduled") {
-    throw new AppError("DEPARTURE_NOT_ACTIVE", 409, "Call-in booking is only allowed while the van is scheduled.");
+  if (departure.status !== "scheduled" && departure.status !== "boarding") {
+    throw new AppError(
+      "DEPARTURE_NOT_ACTIVE",
+      409,
+      "Call-in booking is only allowed while the van is scheduled or boarding.",
+    );
   }
   if (departure.departureAt.getTime() <= Date.now()) {
     throw new AppError("DEPARTURE_CLOSED", 409, "This departure has already left.");

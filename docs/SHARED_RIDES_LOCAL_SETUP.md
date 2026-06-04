@@ -84,9 +84,28 @@ Seats use **A1-style labels** when generated from layout (14 bookable seats on d
 
 ### What is *not* seeded
 
-- Open **trip requests** (pools) — create via app/API as passenger  
-- **Matched** departures from driver join — use driver board + join  
+- **Matched** departures from driver join — use driver board + join on `trip_req_seed_cbd_express`  
 - **Call-in** bookings — driver creates on a live departure  
+
+### QA routes (mobile Path A vs Path B)
+
+After seed, use passenger `+254712000001` / `SongaDev1`:
+
+| Scenario | Search query | Expected |
+|----------|--------------|----------|
+| **Path A — vans listed** | `GET /api/shared-rides/departures/search?direction=to_sgr&corridorLocationSlug=nyali` | `exactDepartures` includes `dep_seed_nyali_sgr_morning` |
+| **Path B — no vans** | `GET /api/shared-rides/departures/search?direction=to_sgr&corridorLocationSlug=mombasa-cbd` | `exactDepartures: []`, `suggestedTripRequests` non-empty |
+| **Driver pool (CBD)** | `GET /api/shared-rides/trip-requests?direction=to_sgr&corridorLocationSlug=mombasa-cbd` | Open pool `trip_req_seed_cbd_express` (2 seats) |
+
+Constants: `prisma/seeds/shared-rides-qa.ts`.
+
+```bash
+curl -s "$API/shared-rides/departures/search?direction=to_sgr&corridorLocationSlug=nyali" \
+  -H "Authorization: Bearer $PTOKEN" | jq '.exactDepartures[].id'
+
+curl -s "$API/shared-rides/departures/search?direction=to_sgr&corridorLocationSlug=mombasa-cbd" \
+  -H "Authorization: Bearer $PTOKEN" | jq '{departures: .exactDepartures | length, suggestions: .suggestedTripRequests | length}'
+```
 
 ---
 

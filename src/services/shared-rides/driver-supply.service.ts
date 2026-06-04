@@ -9,6 +9,7 @@ import {
   sgrSlotWithLocationsInclude,
   type SgrScheduleSlotWithLocations,
 } from "./shared-rides-prisma.js";
+import { assertDriverPublishDepartureAt } from "./publish-departure-time.js";
 import { toTripRequestDto, type TripRequestDto } from "./trip-request.service.js";
 
 const tripRequestInclude = {
@@ -248,10 +249,6 @@ export async function publishDeparture(
   if (Number.isNaN(departureAt.getTime())) {
     throw new AppError("INVALID_INPUT", 400, "departureAt must be a valid ISO datetime.");
   }
-  if (departureAt.getTime() <= Date.now()) {
-    throw new AppError("DEPARTURE_IN_PAST", 400, "Departure must be in the future.");
-  }
-
   const slot = await prisma.sgrScheduleSlot.findFirst({
     where: { id: input.sgrScheduleSlotId, isActive: true },
     include: sgrSlotWithLocationsInclude,
@@ -259,6 +256,8 @@ export async function publishDeparture(
   if (!slot) {
     throw new AppError("SGR_SLOT_NOT_FOUND", 404, "Schedule slot not found.");
   }
+
+  assertDriverPublishDepartureAt(slot, departureAt);
 
   const pricePerSeat = input.pricePerSeat ?? slot.suggestedPricePerSeat;
   const departureId = `dep_${cuid()}`;
