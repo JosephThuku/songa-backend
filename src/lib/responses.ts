@@ -151,7 +151,7 @@ export interface RideDtoInput extends Ride {
   driver?: (User & { driverProfile?: (DriverProfile & { vehicle?: Vehicle | null }) | null }) | null;
 }
 
-function toPlaceDto(value: unknown): PlaceDto {
+export function toPlaceDto(value: unknown): PlaceDto {
   const object = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   return {
     ...(typeof object.placeId === "string" ? { placeId: object.placeId } : {}),
@@ -185,8 +185,17 @@ export function toVehicleEmbedDto(vehicle: Vehicle | null | undefined): VehicleE
   };
 }
 
+/** Minimal driver fields for embed DTOs (full User or Prisma select subsets). */
+export type DriverEmbedSource = {
+  id: string;
+  name: string | null;
+  phone: string;
+  rating: number;
+  avatarUrl?: string | null;
+};
+
 export function toDriverEmbedDto(
-  driver: User | null | undefined,
+  driver: DriverEmbedSource | null | undefined,
   includePhone: boolean,
 ): DriverEmbedDto | null {
   if (!driver) return null;

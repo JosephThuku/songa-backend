@@ -11,7 +11,10 @@ import {
   COAST_CORRIDOR_ZONES,
   SGR_MIRITINI,
 } from "./coast-corridor-locations.js";
-import { seedNyaliMorningBoardingPassengers } from "./shared-rides-nyali-morning-boarding.js";
+import {
+  NYALI_VAN_DRIVER_PHONE,
+  seedNyaliMorningBoardingPassengers,
+} from "./shared-rides-nyali-morning-boarding.js";
 
 const ZONE_PRICING: Record<
   (typeof COAST_CORRIDOR_ZONES)[number]["slug"],
@@ -265,10 +268,26 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
     },
   });
 
-  const driver = await prisma.user.findFirst({
-    where: { role: "driver", driverProfile: { isOnline: true } },
-    select: { id: true },
+  const vanDriver = await prisma.user.findFirst({
+    where: { phone: NYALI_VAN_DRIVER_PHONE, role: "driver" },
+    select: {
+      id: true,
+      driverProfile: {
+        select: {
+          vehicle: { select: { seats: true, seatLayout: true } },
+        },
+      },
+    },
   });
+  const vehicle = vanDriver?.driverProfile?.vehicle;
+  const layoutSeats = vehicle
+    ? generateDepartureSeatsFromVehicle({
+        seats: vehicle.seats,
+        seatLayout: vehicle.seatLayout,
+      })
+    : generateDepartureSeatsFromVehicle({ seats: 14 });
+  const capacity = layoutSeats.length;
+  const driverId = vanDriver?.id ?? null;
 
   const tomorrow = new Date();
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -288,7 +307,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       sgrScheduleSlotId: morningSlot?.id ?? null,
       departureAt: tomorrow,
       pricePerSeat: 350,
-      driverId: driver?.id ?? null,
+      driverId,
     },
     {
       id: "dep_seed_nyali_sgr_night",
@@ -297,7 +316,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       sgrScheduleSlotId: nightSlot?.id ?? null,
       departureAt: nightVan,
       pricePerSeat: 350,
-      driverId: driver?.id ?? null,
+      driverId,
     },
     {
       id: "dep_seed_mtwapa_from_sgr",
@@ -306,7 +325,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
       sgrScheduleSlotId: fromSlot?.id ?? null,
       departureAt: afternoon,
       pricePerSeat: 350,
-      driverId: driver?.id ?? null,
+      driverId,
     },
   ];
 
@@ -318,6 +337,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
         departureAt: row.departureAt,
         pricePerSeat: row.pricePerSeat,
         driverId: row.driverId,
+        capacity,
         status: "scheduled",
       },
       create: {
@@ -327,7 +347,7 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
         sgrScheduleSlotId: row.sgrScheduleSlotId,
         departureAt: row.departureAt,
         pricePerSeat: row.pricePerSeat,
-        capacity: 14,
+        capacity,
         driverId: row.driverId,
         status: "scheduled",
       },
@@ -336,18 +356,24 @@ async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
     const existingSeats = await prisma.sharedDepartureSeat.count({
       where: { departureId: dep.id },
     });
+    const occupiedSeats = await prisma.sharedDepartureSeat.count({
+      where: { departureId: dep.id, status: { in: ["paid", "reserved"] } },
+    });
+    const seatRows = layoutSeats.map((seat) => ({
+      departureId: dep.id,
+      seatNumber: seat.seatNumber,
+      seatLabel: seat.seatLabel,
+      row: seat.row,
+      col: seat.col,
+      status: seat.status,
+    }));
+
     if (existingSeats === 0) {
-      const layoutSeats = generateDepartureSeatsFromVehicle({ seats: 14 });
-      await prisma.sharedDepartureSeat.createMany({
-        data: layoutSeats.map((seat, i) => ({
-          departureId: dep.id,
-          seatNumber: seat.seatNumber,
-          seatLabel: seat.seatLabel,
-          row: seat.row,
-          col: seat.col,
-          status: seat.status,
-        })),
-      });
+      await prisma.sharedDepartureSeat.createMany({ data: seatRows });
+    } else if (existingSeats !== capacity && occupiedSeats === 0) {
+      // Dev-only: fix stale demo seat grids (e.g. 14 seats + wrong driver) without touching paid holds.
+      await prisma.sharedDepartureSeat.deleteMany({ where: { departureId: dep.id } });
+      await prisma.sharedDepartureSeat.createMany({ data: seatRows });
     }
     count += 1;
   }

@@ -4,6 +4,7 @@ import { AppError } from "../../lib/errors.js";
 import { SHARED_SGR_PLATFORM_FEE_KES } from "../../config/shared-rides.js";
 import { prisma } from "../../lib/prisma.js";
 import type { PlaceDto } from "../../lib/responses.js";
+import { toPlaceDto } from "../../lib/responses.js";
 import { assertSeatsHeldForBooking, releaseExpiredSeatHolds } from "./departure-seats.service.js";
 import {
   defaultNeighborhoodPickupPin,
@@ -188,8 +189,8 @@ function bookingRowToDto(row: {
     platformFee: row.platformFee,
     total: row.total,
     currency: "KES",
-    pickup: row.pickup as PlaceDto,
-    dropoff: row.dropoff as PlaceDto,
+    pickup: toPlaceDto(row.pickup),
+    dropoff: toPlaceDto(row.dropoff),
     createdAt: row.createdAt.toISOString(),
   };
 }

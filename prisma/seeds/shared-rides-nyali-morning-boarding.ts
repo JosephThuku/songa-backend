@@ -12,7 +12,7 @@ import { SEED_PASSWORD } from "../seed-constants.js";
 export const NYALI_MORNING_DEPARTURE_ID = "dep_seed_nyali_sgr_morning";
 
 /** Coastal minibus driver — good fit for 14-seat Nyali van. */
-const NYALI_VAN_DRIVER_PHONE = "+254712345681";
+export const NYALI_VAN_DRIVER_PHONE = "+254712345681";
 
 const SGR_DROPOFF = {
   label: "SGR Miritini",
