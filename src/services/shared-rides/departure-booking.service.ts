@@ -205,6 +205,10 @@ export async function listMySharedBookings(
       product: "shared_sgr",
       status: { in: ["paid", "pending_payment"] },
       sharedDepartureId: { not: null },
+      sharedDeparture: {
+        status: { in: ["scheduled", "boarding"] },
+        departureAt: { gte: new Date() },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 30,

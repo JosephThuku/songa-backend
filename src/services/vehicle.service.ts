@@ -12,7 +12,13 @@ export interface RegisterVehicleInput {
   color: string;
   year?: string;
   seats: number;
-  seatLayout?: { rows: number; cols: number; disabled_seats?: string[] };
+  seatLayout?: {
+    rows: number;
+    cols: number;
+    row_pattern?: number[];
+    preset?: string;
+    disabled_seats?: string[];
+  };
 }
 
 export async function registerDriverVehicle(

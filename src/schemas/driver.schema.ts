@@ -74,6 +74,8 @@ registry.registerPath({
 const VehicleSeatLayoutSchema = z.object({
   rows: z.number().int().min(1).max(20),
   cols: z.number().int().min(1).max(6),
+  row_pattern: z.array(z.number().int().min(1).max(6)).min(1).max(8).optional(),
+  preset: z.enum(["1+2", "1+3", "2-2-3", "2-3-2", "2-3-3"]).optional(),
   disabled_seats: z.array(z.string().min(1)).optional(),
 });
 
@@ -90,8 +92,8 @@ export const RegisterVehicleRequestSchema = registry.register(
       seats: z.number().int().min(1).max(60),
       seatLayout: VehicleSeatLayoutSchema.optional().openapi({
         description:
-          "Optional van seat grid (Laravel). Used when driver joins/publishes shared departures. Omit for default 2-column layout.",
-        example: { rows: 7, cols: 2, disabled_seats: [] },
+          "Optional seat grid for shared departures. Prefer row_pattern (2-2-3 / 2-3-3) from driver registration; omit for legacy 2-column layout.",
+        example: { preset: "2-3-3", row_pattern: [2, 3, 3], rows: 3, cols: 3, disabled_seats: [] },
       }),
     })
     .strict(),

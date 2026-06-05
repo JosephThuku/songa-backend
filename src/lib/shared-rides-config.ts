@@ -8,6 +8,8 @@ function envInt(name: string, fallback: number): number {
 export const sharedRidesConfig = {
   timezone: "Africa/Nairobi",
   bookingLeadMinutes: envInt("SHARED_RIDES_BOOKING_LEAD_MIN", 120),
+  /** When a timetable van is this close (or past), suggestions roll to the next day same time. */
+  suggestionRolloverMinutes: envInt("SHARED_RIDES_SUGGESTION_ROLLOVER_MIN", 20),
   fromSgrGraceMinutes: envInt("SHARED_RIDES_FROM_SGR_GRACE_MIN", 45),
   fromSgrLookaheadHours: envInt("SHARED_RIDES_FROM_SGR_LOOKAHEAD_H", 6),
   maxSuggestions: envInt("SHARED_RIDES_MAX_SUGGESTIONS", 2),

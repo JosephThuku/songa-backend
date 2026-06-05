@@ -19,7 +19,11 @@ export type ReturnSuggestionDto = {
   reason: "passengers_waiting" | "round_trip" | null;
   seatsRequested: number;
   openTripRequests: number;
+  /** When the outbound run reaches SGR (for round-trip copy). */
+  outboundAtSgr: string | null;
   suggestedSlot: SuggestedTripRequestDto | null;
+  /** Same timetable rows as GET /suggestions (up to SHARED_RIDES_MAX_SUGGESTIONS). */
+  slotOptions: SuggestedTripRequestDto[];
   prefill: { departureAt: string; pricePerSeat: number; sgrScheduleSlotId: string } | null;
   driverAlreadyPublished: boolean;
 };
@@ -29,7 +33,9 @@ const INELIGIBLE: ReturnSuggestionDto = {
   reason: null,
   seatsRequested: 0,
   openTripRequests: 0,
+  outboundAtSgr: null,
   suggestedSlot: null,
+  slotOptions: [],
   prefill: null,
   driverAlreadyPublished: false,
 };
@@ -85,20 +91,6 @@ export function returnVanInstantOnOutboundDay(
   vanDepartureTime: string,
 ): Date {
   return nairobiLocalToUtc(outboundParts, vanDepartureTime, 0);
-}
-
-export function computePrefillDepartureAt(
-  outboundSlot: SgrScheduleSlotRef,
-  outboundDirection: SharedRideDirection,
-  outboundDepartureAt: Date,
-  candidateVanAt: Date,
-): Date {
-  const endsAtSgr = outboundEndsAtSgr(outboundSlot, outboundDirection, outboundDepartureAt);
-  const idealMs =
-    endsAtSgr.getTime() +
-    sharedRidesConfig.returnSuggestionIdealMinutesAfterSgr * 60_000;
-  const idealAt = new Date(idealMs);
-  return candidateVanAt.getTime() > idealAt.getTime() ? candidateVanAt : idealAt;
 }
 
 export type ReturnSlotDemand = {
@@ -160,11 +152,28 @@ export function rankReturnSlotCandidates(
   return candidates;
 }
 
+function suggestedDtoForCandidate(
+  candidate: ReturnSlotCandidate,
+  returnDirection: SharedRideDirection,
+  outboundParts: NairobiParts,
+): SuggestedTripRequestDto {
+  const { openTripRequests, seatsRequested } = candidate.demand;
+  return buildSuggestedTripRequest(
+    candidate.slot,
+    returnDirection,
+    candidate.vanAt,
+    outboundParts,
+    0,
+    Math.max(seatsRequested, openTripRequests > 0 ? seatsRequested : 1),
+  );
+}
+
 export function buildReturnSuggestionFromCandidate(
   candidate: ReturnSlotCandidate,
   outboundSlot: SgrScheduleSlotRef,
   outboundDirection: SharedRideDirection,
   outboundDepartureAt: Date,
+  slotOptions: SuggestedTripRequestDto[],
 ): ReturnSuggestionDto {
   if (candidate.driverAlreadyPublished) {
     return {
@@ -179,20 +188,12 @@ export function buildReturnSuggestionFromCandidate(
   const reason: ReturnSuggestionDto["reason"] =
     openTripRequests > 0 || seatsRequested > 0 ? "passengers_waiting" : "round_trip";
 
-  const suggestedSlot = buildSuggestedTripRequest(
-    candidate.slot,
-    returnDirection,
-    candidate.vanAt,
-    outboundParts,
-    0,
-    Math.max(seatsRequested, 1),
-  );
+  const suggestedSlot =
+    slotOptions.find((s) => s.sgrScheduleSlotId === candidate.slot.id) ??
+    suggestedDtoForCandidate(candidate, returnDirection, outboundParts);
 
-  const prefillAt = computePrefillDepartureAt(
-    outboundSlot,
-    outboundDirection,
-    outboundDepartureAt,
-    candidate.vanAt,
+  const outboundAtSgr = toNairobiIso(
+    outboundEndsAtSgr(outboundSlot, outboundDirection, outboundDepartureAt),
   );
 
   return {
@@ -200,9 +201,11 @@ export function buildReturnSuggestionFromCandidate(
     reason,
     seatsRequested,
     openTripRequests,
+    outboundAtSgr,
     suggestedSlot,
+    slotOptions,
     prefill: {
-      departureAt: toNairobiIso(prefillAt),
+      departureAt: toNairobiIso(candidate.vanAt),
       pricePerSeat: candidate.slot.suggestedPricePerSeat,
       sgrScheduleSlotId: candidate.slot.id,
     },
@@ -285,16 +288,25 @@ export async function findReturnSuggestion(params: {
     publishedSlotIds,
   );
 
-  const top = ranked.find((c) => !c.driverAlreadyPublished);
-  if (!top) {
+  const outboundParts = getNairobiParts(departureAt);
+  const eligible = ranked
+    .filter((c) => !c.driverAlreadyPublished)
+    .slice(0, sharedRidesConfig.maxSuggestions);
+
+  if (eligible.length === 0) {
     const anyPublished = ranked.some((c) => c.driverAlreadyPublished);
     return anyPublished ? { ...INELIGIBLE, driverAlreadyPublished: true } : INELIGIBLE;
   }
 
+  const slotOptions = eligible.map((c) =>
+    suggestedDtoForCandidate(c, returnDirection, outboundParts),
+  );
+
   return buildReturnSuggestionFromCandidate(
-    top,
+    eligible[0]!,
     outboundSlot,
     outboundDirection,
     departureAt,
+    slotOptions,
   );
 }

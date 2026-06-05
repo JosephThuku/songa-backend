@@ -3,11 +3,11 @@ import type { SgrScheduleSlotRef } from "../src/domain/shared-rides.js";
 import { nairobiLocalToUtc } from "../src/lib/nairobi-time.js";
 import {
   buildReturnSuggestionFromCandidate,
-  computePrefillDepartureAt,
   oppositeDirection,
   rankReturnSlotCandidates,
   returnVanInstantOnOutboundDay,
 } from "../src/services/shared-rides/return-suggestion.service.js";
+import { buildSuggestedTripRequest } from "../src/services/shared-rides/suggestions.service.js";
 
 function slot(
   partial: Partial<SgrScheduleSlotRef> & Pick<SgrScheduleSlotRef, "id" | "direction" | "vanDepartureTime" | "sgrEventTime">,
@@ -62,11 +62,15 @@ describe("return suggestion pairing", () => {
     );
 
     expect(ranked.map((c) => c.slot.id)).toEqual(["early-return", "later-return"]);
+    const slotOptions = ranked.map((c) =>
+      buildSuggestedTripRequest(c.slot, "from_sgr", c.vanAt, outboundParts, 0, 1),
+    );
     const suggestion = buildReturnSuggestionFromCandidate(
       ranked[0]!,
       outboundSlot,
       "to_sgr",
       outboundAt,
+      slotOptions,
     );
     expect(suggestion).toMatchObject({
       eligible: true,
@@ -102,11 +106,15 @@ describe("return suggestion pairing", () => {
     );
 
     expect(ranked[0]?.driverAlreadyPublished).toBe(true);
+    const slotOptions = ranked.map((c) =>
+      buildSuggestedTripRequest(c.slot, "from_sgr", c.vanAt, outboundParts, 0, 1),
+    );
     const suggestion = buildReturnSuggestionFromCandidate(
       ranked[0]!,
       outboundSlot,
       "to_sgr",
       outboundAt,
+      slotOptions,
     );
     expect(suggestion.eligible).toBe(false);
     expect(suggestion.driverAlreadyPublished).toBe(true);
@@ -141,11 +149,15 @@ describe("return suggestion pairing", () => {
 
     expect(ranked).toHaveLength(1);
     expect(ranked[0]?.slot.direction).toBe("to_sgr");
+    const slotOptions = ranked.map((c) =>
+      buildSuggestedTripRequest(c.slot, "to_sgr", c.vanAt, outboundParts, 0, 1),
+    );
     const suggestion = buildReturnSuggestionFromCandidate(
       ranked[0]!,
       outboundSlot,
       "from_sgr",
       outboundAt,
+      slotOptions,
     );
     expect(suggestion.eligible).toBe(true);
     expect(suggestion.suggestedSlot?.direction).toBe("to_sgr");
@@ -173,6 +185,9 @@ describe("return suggestion pairing", () => {
     );
 
     expect(ranked[0]?.slot.id).toBe("high-demand");
+    const slotOptions = ranked.map((c) =>
+      buildSuggestedTripRequest(c.slot, "from_sgr", c.vanAt, outboundParts, 0, 5),
+    );
     const suggestion = buildReturnSuggestionFromCandidate(
       ranked[0]!,
       slot({
@@ -183,6 +198,7 @@ describe("return suggestion pairing", () => {
       }),
       "to_sgr",
       outboundAt,
+      slotOptions,
     );
     expect(suggestion.reason).toBe("passengers_waiting");
     expect(suggestion.openTripRequests).toBe(3);
@@ -211,7 +227,7 @@ describe("return suggestion pairing", () => {
     );
   });
 
-  it("prefill uses slot van time when later than ideal return after SGR", () => {
+  it("prefill uses the timetable van departure instant", () => {
     const outboundParts = { year: 2026, month: 6, day: 5, hour: 5, minute: 0 };
     const outboundAt = nairobiLocalToUtc(outboundParts, "06:00", 0);
     const outboundSlot = slot({
@@ -220,37 +236,25 @@ describe("return suggestion pairing", () => {
       sgrEventTime: "08:00",
       vanDepartureTime: "06:00",
     });
-    const candidateVanAt = nairobiLocalToUtc(outboundParts, "14:00", 0);
-
-    const prefillAt = computePrefillDepartureAt(
+    const ranked = rankReturnSlotCandidates(
+      [fromSgrSlot({ id: "return-14", sgrEventTime: "14:00", vanDepartureTime: "14:00" })],
+      "from_sgr",
+      outboundAt,
+      new Map(),
+      new Set(),
+    );
+    const slotOptions = ranked.map((c) =>
+      buildSuggestedTripRequest(c.slot, "from_sgr", c.vanAt, outboundParts, 0, 1),
+    );
+    const suggestion = buildReturnSuggestionFromCandidate(
+      ranked[0]!,
       outboundSlot,
       "to_sgr",
       outboundAt,
-      candidateVanAt,
+      slotOptions,
     );
-
-    expect(prefillAt.getTime()).toBe(candidateVanAt.getTime());
-  });
-
-  it("prefill uses ideal return when earlier than slot van time", () => {
-    const outboundParts = { year: 2026, month: 6, day: 5, hour: 3, minute: 0 };
-    const outboundAt = nairobiLocalToUtc(outboundParts, "04:00", 0);
-    const outboundSlot = slot({
-      id: "to-early",
-      direction: "to_sgr",
-      sgrEventTime: "06:00",
-      vanDepartureTime: "04:00",
-    });
-    const candidateVanAt = nairobiLocalToUtc(outboundParts, "07:00", 0);
-
-    const prefillAt = computePrefillDepartureAt(
-      outboundSlot,
-      "to_sgr",
-      outboundAt,
-      candidateVanAt,
-    );
-
-    const idealAt = nairobiLocalToUtc(outboundParts, "06:00", 0).getTime() + 75 * 60_000;
-    expect(prefillAt.getTime()).toBe(idealAt);
+    expect(suggestion.prefill?.departureAt).toBe("2026-06-05T14:00:00+03:00");
+    expect(suggestion.slotOptions).toHaveLength(1);
+    expect(suggestion.slotOptions[0]?.vanDepartureAt).toBe("2026-06-05T14:00:00+03:00");
   });
 });

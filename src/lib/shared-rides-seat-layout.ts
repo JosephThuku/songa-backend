@@ -4,8 +4,11 @@
  */
 
 export type VehicleSeatLayout = {
-  rows: number;
-  cols: number;
+  rows?: number;
+  cols?: number;
+  /** e.g. [2, 2, 3] — Kenyan bench rows behind the driver. */
+  row_pattern?: number[];
+  preset?: string;
   disabled_seats?: string[];
 };
 
@@ -17,6 +20,8 @@ export type GeneratedDepartureSeat = {
   status: "available" | "disabled";
 };
 
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
 export function defaultVehicleSeatLayout(capacity: number): VehicleSeatLayout {
   const cols = 2;
   /** +1 row accounts for the non-bookable driver seat (Laravel: row 0, last col). */
@@ -27,14 +32,80 @@ export function defaultVehicleSeatLayout(capacity: number): VehicleSeatLayout {
 export function parseVehicleSeatLayout(raw: unknown, capacity: number): VehicleSeatLayout {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const o = raw as Record<string, unknown>;
+    const row_pattern = Array.isArray(o.row_pattern)
+      ? o.row_pattern.filter((n): n is number => typeof n === "number" && n > 0)
+      : undefined;
     const rows = typeof o.rows === "number" ? o.rows : defaultVehicleSeatLayout(capacity).rows;
-    const cols = typeof o.cols === "number" ? o.cols : 2;
+    const cols =
+      typeof o.cols === "number"
+        ? o.cols
+        : row_pattern
+          ? Math.max(...row_pattern)
+          : 2;
     const disabled_seats = Array.isArray(o.disabled_seats)
       ? o.disabled_seats.filter((s): s is string => typeof s === "string")
       : [];
-    return { rows: Math.max(1, rows), cols: Math.max(1, cols), disabled_seats };
+    const preset = typeof o.preset === "string" ? o.preset : undefined;
+    return {
+      rows: Math.max(1, rows),
+      cols: Math.max(1, cols),
+      row_pattern,
+      preset,
+      disabled_seats,
+    };
   }
   return defaultVehicleSeatLayout(capacity);
+}
+
+function generateFromRowPattern(
+  rowPattern: number[],
+  capacity: number,
+  disabled: Set<string>,
+): GeneratedDepartureSeat[] {
+  const maxCols = Math.max(...rowPattern, 2);
+  const positions: { row: number; col: number }[] = [];
+  let assigned = 0;
+
+  const frontPassengerSlots = Math.max(0, (rowPattern[0] ?? 2) - 1);
+  for (let col = 0; col < frontPassengerSlots && assigned < capacity; col += 1) {
+    positions.push({ row: 0, col });
+    assigned += 1;
+  }
+
+  for (let patternIndex = 1; patternIndex < rowPattern.length; patternIndex += 1) {
+    const width = rowPattern[patternIndex]!;
+    const twinMiddle =
+      width === 2 && maxCols >= 3 && patternIndex === 1 && rowPattern.length >= 3;
+
+    if (twinMiddle) {
+      if (assigned < capacity) {
+        positions.push({ row: patternIndex, col: 0 });
+        assigned += 1;
+      }
+      if (assigned < capacity) {
+        positions.push({ row: patternIndex, col: maxCols - 1 });
+        assigned += 1;
+      }
+      continue;
+    }
+
+    for (let col = 0; col < width && assigned < capacity; col += 1) {
+      positions.push({ row: patternIndex, col });
+      assigned += 1;
+    }
+  }
+
+  return positions.map((pos, index) => {
+    const seatLabel = `${LETTERS[pos.row] ?? "X"}${pos.col + 1}`;
+    const blocked = disabled.has(seatLabel);
+    return {
+      seatNumber: blocked ? 0 : index + 1,
+      seatLabel,
+      row: pos.row,
+      col: pos.col,
+      status: blocked ? "disabled" : "available",
+    };
+  }).filter((s) => s.seatNumber > 0);
 }
 
 export function generateDepartureSeatsFromVehicle(input: {
@@ -43,14 +114,20 @@ export function generateDepartureSeatsFromVehicle(input: {
 }): GeneratedDepartureSeat[] {
   const capacity = Math.max(1, input.seats);
   const layout = parseVehicleSeatLayout(input.seatLayout, capacity);
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const disabled = new Set(layout.disabled_seats ?? []);
 
+  if (layout.row_pattern && layout.row_pattern.length > 0) {
+    return generateFromRowPattern(layout.row_pattern, capacity, disabled);
+  }
+
+  const cols = layout.cols;
+  const rows = layout.rows;
+
   const grid: GeneratedDepartureSeat[] = [];
-  for (let row = 0; row < layout.rows; row++) {
-    for (let col = 1; col <= layout.cols; col++) {
-      const seatLabel = `${letters[row] ?? "X"}${col}`;
-      const isDriverSeat = row === 0 && col === layout.cols;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 1; col <= cols; col++) {
+      const seatLabel = `${LETTERS[row] ?? "X"}${col}`;
+      const isDriverSeat = row === 0 && col === cols;
       let status: "available" | "disabled" = "available";
       if (isDriverSeat || disabled.has(seatLabel)) {
         status = "disabled";

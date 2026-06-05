@@ -47,7 +47,7 @@ export async function listDriverDepartures(driverId: string): Promise<{ departur
     where: {
       driverId,
       status: { in: ACTIVE_DRIVER_STATUSES },
-      departureAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+      departureAt: { gte: new Date() },
     },
     include: {
       pickupLocation: { select: corridorLocationBriefSelect },

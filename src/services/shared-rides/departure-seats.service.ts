@@ -12,6 +12,10 @@ import {
   SGR_CORRIDOR_SLUG,
   type PickupPinDto,
 } from "./shared-rides-pickup.js";
+import {
+  loadDepartureNotifyContext,
+  notifyDriverSeatsReserved,
+} from "./shared-rides-notify.js";
 
 function reserveExpiresAt(): Date {
   return new Date(Date.now() + sharedRidesConfig.seatReserveMinutes * 60_000);
@@ -425,6 +429,22 @@ export async function reserveDepartureSeats(
   });
 
   const detail = await getDepartureDetail(departureId, passengerId);
+  const notifyCtx = await loadDepartureNotifyContext(departureId);
+  if (notifyCtx) {
+    const passenger = await prisma.user.findUnique({
+      where: { id: passengerId },
+      select: { name: true },
+    });
+    void notifyDriverSeatsReserved({
+      driverId: notifyCtx.driverId,
+      departureId,
+      routeLabel: notifyCtx.routeLabel,
+      passengerName: passenger?.name ?? null,
+      seatNumbers: seats,
+    }).catch((err) => {
+      console.warn("[shared-rides] driver seat reserved notify failed", err);
+    });
+  }
   return { departure: detail.departure, reservedUntil: toNairobiIso(expiresAt) };
 }
 

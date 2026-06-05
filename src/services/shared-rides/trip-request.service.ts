@@ -9,7 +9,8 @@ import {
   type SharedTripRequestWithRelations,
   type SgrScheduleSlotWithLocations,
 } from "./shared-rides-prisma.js";
-import { slotDetail, slotHeadline, trainServiceLabel } from "./slot-labels.js";
+import { slotDetail, slotHeadline, suggestionTrainLabel } from "./slot-labels.js";
+import { notifyDriversPassengerPoolWaiting } from "./shared-rides-notify.js";
 
 const tripRequestInclude = {
   corridorLocation: { select: corridorLocationBriefSelect },
@@ -167,7 +168,12 @@ export function toTripRequestDto(tripRequest: SharedTripRequestWithRelations): T
     sgrScheduleSlotId: tripRequest.sgrScheduleSlotId,
     headline: slotHeadline(tripRequest.direction, slot.trainService, slot.sgrEventTime),
     detail: slotDetail(zone.name, tripRequest.direction, slot.vanDepartureTime, slot.suggestedPricePerSeat),
-    trainLabel: `${trainServiceLabel(slot.trainService)} · ${tripRequest.direction === "to_sgr" ? "departs Miritini" : "arrives Miritini"} ${slot.sgrEventTime}`,
+    trainLabel: suggestionTrainLabel(
+      tripRequest.direction,
+      slot.trainService,
+      slot.sgrEventTime,
+      slot.vanDepartureTime,
+    ),
     pricePerSeat: slot.suggestedPricePerSeat,
     notes: tripRequest.notes,
     matchedDepartureId: tripRequest.matchedDepartureId,
@@ -271,8 +277,26 @@ export async function createTripRequest(
       include: tripRequestInclude,
     });
 
-    return { tripRequest, reservation };
+    return { tripRequest, reservation, poolTotal };
   });
+
+  if (result.poolTotal > 0) {
+    const tripRequest = result.tripRequest as SharedTripRequestWithRelations;
+    const slot = tripRequest.sgrScheduleSlot as SgrScheduleSlotWithLocations;
+    const from =
+      tripRequest.direction === "to_sgr" ? slot.pickupLocation.name : slot.dropoffLocation.name;
+    const to =
+      tripRequest.direction === "to_sgr" ? slot.dropoffLocation.name : slot.pickupLocation.name;
+    void notifyDriversPassengerPoolWaiting({
+      tripRequestId: tripRequest.id,
+      routeLabel: `${from} → ${to}`,
+      departureAtIso: toNairobiIso(tripRequest.requestedDepartureAt),
+      poolSeatsTotal: result.poolTotal,
+      direction: tripRequest.direction,
+    }).catch((err) => {
+      console.warn("[shared-rides] driver pool notify failed", err);
+    });
+  }
 
   return {
     tripRequest: toTripRequestDto(result.tripRequest as SharedTripRequestWithRelations),

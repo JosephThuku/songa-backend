@@ -2,7 +2,7 @@ import type { Vehicle } from "@prisma/client";
 import { sharedRidesAllowedVehicleTypes, sharedRidesMinBookableSeats } from "../../config/shared-rides.js";
 import { AppError } from "../../lib/errors.js";
 
-/** Enforce van/minibus + minimum bookable seats before creating a shared departure. */
+/** Ensure the vehicle has at least one bookable passenger seat; optional type allow-list via env. */
 export function assertVehicleEligibleForSharedDeparture(
   vehicle: Vehicle,
   bookableSeatCount: number,

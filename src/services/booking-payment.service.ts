@@ -2,6 +2,10 @@ import type { Payment, Booking, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
 import { creditDriverForSharedBooking } from "./wallet.service.js";
+import {
+  loadDepartureNotifyContext,
+  notifyDriverSeatsPaid,
+} from "./shared-rides/shared-rides-notify.js";
 
 const bookingPaymentSelect = {
   id: true,
@@ -73,5 +77,39 @@ export async function completeBookingPayment(
       });
       await creditDriverForSharedBooking(tx, freshBooking.id);
     }
+  });
+
+  if (booking.sharedDepartureId) {
+    void notifyDriverSharedBookingPaid(booking.id, booking.sharedDepartureId).catch((err) => {
+      console.warn("[shared-rides] driver seat paid notify failed", err);
+    });
+  }
+}
+
+async function notifyDriverSharedBookingPaid(
+  bookingId: string,
+  departureId: string,
+): Promise<void> {
+  const [notifyCtx, booking] = await Promise.all([
+    loadDepartureNotifyContext(departureId),
+    prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { passenger: { select: { name: true } } },
+    }),
+  ]);
+  if (!notifyCtx || !booking) return;
+
+  const seatNumbers = (booking.seats ?? "")
+    .split(",")
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isFinite(value));
+
+  await notifyDriverSeatsPaid({
+    driverId: notifyCtx.driverId,
+    departureId,
+    routeLabel: notifyCtx.routeLabel,
+    passengerName: booking.passenger?.name ?? null,
+    seatNumbers,
+    amountKes: booking.subtotal,
   });
 }

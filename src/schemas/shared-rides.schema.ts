@@ -339,7 +339,9 @@ const ReturnSuggestionDtoSchema = z.object({
   reason: z.enum(["passengers_waiting", "round_trip"]).nullable(),
   seatsRequested: z.number().int(),
   openTripRequests: z.number().int(),
+  outboundAtSgr: eatDatetimeSchema.nullable(),
   suggestedSlot: SuggestedTripRequestDtoSchema.nullable(),
+  slotOptions: z.array(SuggestedTripRequestDtoSchema),
   prefill: z
     .object({
       departureAt: eatDatetimeSchema,

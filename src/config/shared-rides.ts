@@ -14,10 +14,9 @@ export function sharedRidesDriverHoldbackPercent(): number {
   return n;
 }
 
-const DEFAULT_MIN_BOOKABLE_SEATS = 8;
-const DEFAULT_ALLOWED_VEHICLE_TYPES = ["Van", "Minibus"] as const;
+const DEFAULT_MIN_BOOKABLE_SEATS = 1;
 
-/** Minimum bookable seats after layout (publish / join). */
+/** Minimum bookable seats after layout (publish / join). Default 1 — any car/van/minibus may publish. */
 export function sharedRidesMinBookableSeats(): number {
   const raw = process.env.SHARED_RIDES_MIN_BOOKABLE_SEATS;
   if (!raw?.trim()) return DEFAULT_MIN_BOOKABLE_SEATS;
@@ -26,10 +25,10 @@ export function sharedRidesMinBookableSeats(): number {
   return n;
 }
 
-/** Allowed `Vehicle.type` values for shared SGR. Set `*` or `any` to skip type check (min seats still applies). */
+/** Allowed `Vehicle.type` values for shared SGR. Default: any type. Set e.g. `Van,Minibus` to restrict. */
 export function sharedRidesAllowedVehicleTypes(): string[] | null {
   const raw = process.env.SHARED_RIDES_ALLOWED_VEHICLE_TYPES?.trim();
-  if (!raw) return [...DEFAULT_ALLOWED_VEHICLE_TYPES];
+  if (!raw) return null;
   if (raw === "*" || raw.toLowerCase() === "any") return null;
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
