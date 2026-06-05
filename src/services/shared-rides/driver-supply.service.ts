@@ -10,6 +10,7 @@ import {
   type SgrScheduleSlotWithLocations,
 } from "./shared-rides-prisma.js";
 import { assertDriverPublishDepartureAt } from "./publish-departure-time.js";
+import { findReturnSuggestion, type ReturnSuggestionDto } from "./return-suggestion.service.js";
 import { assertVehicleEligibleForSharedDeparture } from "./shared-vehicle-eligibility.js";
 import { toTripRequestDto, type TripRequestDto } from "./trip-request.service.js";
 
@@ -247,7 +248,7 @@ export async function joinTripRequest(
 export async function publishDeparture(
   driverId: string,
   input: PublishDepartureInput,
-): Promise<{ departure: SharedDepartureBriefDto }> {
+): Promise<{ departure: SharedDepartureBriefDto; returnSuggestion: ReturnSuggestionDto | null }> {
   const profile = await loadDriverWithVehicle(driverId);
   const departureAt = new Date(input.departureAt);
   if (Number.isNaN(departureAt.getTime())) {
@@ -294,5 +295,14 @@ export async function publishDeparture(
     return created;
   });
 
-  return { departure: toDepartureBrief(departure) };
+  const returnSuggestion = await findReturnSuggestion({
+    driverId,
+    slot,
+    departureAt,
+  });
+
+  return {
+    departure: toDepartureBrief(departure),
+    returnSuggestion: returnSuggestion.eligible ? returnSuggestion : null,
+  };
 }

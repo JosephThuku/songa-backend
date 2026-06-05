@@ -18,7 +18,30 @@ export const QA_SHARED_RIDE_ROUTES = {
     corridorLocationSlug: "mombasa-cbd",
     seededOpenTripRequestId: "trip_req_seed_cbd_express",
   },
-  /** `from_sgr` demo van (optional second Path A). */
+  /** `from_sgr` demo vans (Nyali + Bamburi + legacy Mtwapa). */
+  fromSgrNyali: {
+    direction: "from_sgr" as const,
+    corridorLocationSlug: "nyali",
+    demoDepartureIds: ["dep_seed_sgr_nyali_van", "dep_seed_sgr_nyali_car"] as const,
+    vanDepartureId: "dep_seed_sgr_nyali_van",
+    carDepartureId: "dep_seed_sgr_nyali_car",
+  },
+  fromSgrBamburi: {
+    direction: "from_sgr" as const,
+    corridorLocationSlug: "bamburi",
+    demoDepartureIds: ["dep_seed_sgr_bamburi_van", "dep_seed_sgr_bamburi_car"] as const,
+    vanDepartureId: "dep_seed_sgr_bamburi_van",
+    carDepartureId: "dep_seed_sgr_bamburi_car",
+  },
+  toSgrBamburi: {
+    direction: "to_sgr" as const,
+    corridorLocationSlug: "bamburi",
+    demoDepartureIds: [
+      "dep_seed_bamburi_sgr_morning",
+      "dep_seed_bamburi_sgr_van_express",
+      "dep_seed_bamburi_sgr_car",
+    ] as const,
+  },
   fromSgrMtwapa: {
     direction: "from_sgr" as const,
     corridorLocationSlug: "mtwapa",

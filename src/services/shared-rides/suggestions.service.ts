@@ -69,12 +69,13 @@ function isRelevantFromSgr(
   return { ok: false, vanAt: vanUtcAt(parts, slot.vanDepartureTime, 1), dayOffset: 1 };
 }
 
-function toSuggestion(
+export function buildSuggestedTripRequest(
   slot: SgrScheduleSlotRef,
   direction: SharedRideDirection,
   vanAt: Date,
   parts: NairobiParts,
   dayOffset: number,
+  seatsRequested = 1,
 ): SuggestedTripRequestDto {
   const zone = zoneForSlot(slot, direction);
   const depDate = nairobiLocalToUtc(
@@ -95,7 +96,7 @@ function toSuggestion(
     trainLabel: `${trainServiceLabel(slot.trainService)} · ${direction === "to_sgr" ? "departs Miritini" : "arrives Miritini"} ${slot.sgrEventTime}`,
     vanDepartureAt: toNairobiIso(vanAt),
     pricePerSeat: slot.suggestedPricePerSeat,
-    seatsRequested: 1,
+    seatsRequested,
   };
 }
 
@@ -123,5 +124,7 @@ export function buildSuggestionsFromSlots(
 
   return ranked
     .slice(0, sharedRidesConfig.maxSuggestions)
-    .map(({ slot, vanAt, dayOffset }) => toSuggestion(slot, direction, vanAt, parts, dayOffset));
+    .map(({ slot, vanAt, dayOffset }) =>
+      buildSuggestedTripRequest(slot, direction, vanAt, parts, dayOffset),
+    );
 }

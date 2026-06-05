@@ -13,4 +13,8 @@ export const sharedRidesConfig = {
   maxSuggestions: envInt("SHARED_RIDES_MAX_SUGGESTIONS", 2),
   /** Hold on reserved seats before payment (minutes). */
   seatReserveMinutes: envInt("SHARED_RIDES_SEAT_RESERVE_MIN", 5),
+  /** Min gap after outbound van before return slot (minutes). */
+  returnSuggestionMinGapMinutes: envInt("SHARED_RIDES_RETURN_MIN_GAP_MIN", 45),
+  /** Ideal return van time after outbound ends at SGR (minutes). */
+  returnSuggestionIdealMinutesAfterSgr: envInt("SHARED_RIDES_RETURN_IDEAL_MIN_AFTER_SGR", 75),
 } as const;

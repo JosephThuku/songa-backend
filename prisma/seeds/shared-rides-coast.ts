@@ -6,15 +6,15 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { SharedRideDirection, SgrTrainService } from "../../src/domain/shared-rides.js";
-import { generateDepartureSeatsFromVehicle } from "../../src/lib/shared-rides-seat-layout.js";
 import {
   COAST_CORRIDOR_ZONES,
   SGR_MIRITINI,
 } from "./coast-corridor-locations.js";
+import { seedNyaliMorningBoardingPassengers } from "./shared-rides-nyali-morning-boarding.js";
 import {
-  NYALI_VAN_DRIVER_PHONE,
-  seedNyaliMorningBoardingPassengers,
-} from "./shared-rides-nyali-morning-boarding.js";
+  driverVanDepartureSummary,
+  seedDriverVanDepartures,
+} from "./shared-rides-driver-departures.js";
 
 const ZONE_PRICING: Record<
   (typeof COAST_CORRIDOR_ZONES)[number]["slug"],
@@ -214,7 +214,7 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
     }
   }
 
-  const demoDepartures = await seedDemoDepartures(prisma, sgr.id);
+  const demoDepartures = await seedDriverVanDepartures(prisma, sgr.id);
   const demoTripRequest = await seedDemoOpenTripRequest(prisma, sgr.id);
   const nyaliMorningBoarding = await seedNyaliMorningBoardingPassengers(prisma);
 
@@ -223,166 +223,17 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
     zoneSlugs: COAST_CORRIDOR_ZONES.map((z) => z.slug),
     slotCount,
     demoDepartures,
+    driverVanDepartures: driverVanDepartureSummary(),
     demoTripRequest,
     nyaliMorningBoarding,
     qa: {
       withDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=nyali",
+      withDeparturesBamburi: "GET departures/search?direction=to_sgr&corridorLocationSlug=bamburi",
+      fromSgrNyali: "GET departures/search?direction=from_sgr&corridorLocationSlug=nyali",
+      fromSgrBamburi: "GET departures/search?direction=from_sgr&corridorLocationSlug=bamburi",
       withoutDepartures: "GET departures/search?direction=to_sgr&corridorLocationSlug=mombasa-cbd",
     },
   };
-}
-
-/** A few upcoming vans so departures/search is non-empty in dev. */
-async function seedDemoDepartures(prisma: PrismaClient, sgrId: string) {
-  const nyali = await prisma.corridorLocation.findUnique({ where: { slug: "nyali" } });
-  const mtwapa = await prisma.corridorLocation.findUnique({ where: { slug: "mtwapa" } });
-  if (!nyali || !mtwapa) return 0;
-
-  const morningSlot = await prisma.sgrScheduleSlot.findFirst({
-    where: {
-      pickupLocationId: nyali.id,
-      dropoffLocationId: sgrId,
-      direction: "to_sgr",
-      trainService: "inter_county",
-      sgrEventTime: "08:00",
-    },
-  });
-
-  const nightSlot = await prisma.sgrScheduleSlot.findFirst({
-    where: {
-      pickupLocationId: nyali.id,
-      dropoffLocationId: sgrId,
-      direction: "to_sgr",
-      trainService: "night",
-      sgrEventTime: "22:00",
-      vanDepartureTime: "18:00",
-    },
-  });
-
-  const fromSlot = await prisma.sgrScheduleSlot.findFirst({
-    where: {
-      pickupLocationId: sgrId,
-      dropoffLocationId: mtwapa.id,
-      direction: "from_sgr",
-      trainService: "inter_county",
-    },
-  });
-
-  const vanDriver = await prisma.user.findFirst({
-    where: { phone: NYALI_VAN_DRIVER_PHONE, role: "driver" },
-    select: {
-      id: true,
-      driverProfile: {
-        select: {
-          vehicleId: true,
-          vehicle: { select: { id: true, seats: true, seatLayout: true } },
-        },
-      },
-    },
-  });
-  const vehicle = vanDriver?.driverProfile?.vehicle;
-  const vehicleId = vanDriver?.driverProfile?.vehicleId ?? vehicle?.id ?? null;
-  const layoutSeats = vehicle
-    ? generateDepartureSeatsFromVehicle({
-        seats: vehicle.seats,
-        seatLayout: vehicle.seatLayout,
-      })
-    : generateDepartureSeatsFromVehicle({ seats: 14 });
-  const capacity = layoutSeats.length;
-  const driverId = vanDriver?.id ?? null;
-
-  const tomorrow = new Date();
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  tomorrow.setUTCHours(3, 0, 0, 0); // ~06:00 EAT van Nyali → SGR
-
-  const afternoon = new Date(tomorrow);
-  afternoon.setUTCHours(9, 0, 0, 0); // ~12:00 EAT express van
-
-  const nightVan = new Date(tomorrow);
-  nightVan.setUTCHours(15, 0, 0, 0); // ~18:00 EAT van for 22:00 train
-
-  const rows = [
-    {
-      id: "dep_seed_nyali_sgr_morning",
-      pickupLocationId: nyali.id,
-      dropoffLocationId: sgrId,
-      sgrScheduleSlotId: morningSlot?.id ?? null,
-      departureAt: tomorrow,
-      pricePerSeat: 350,
-      driverId,
-    },
-    {
-      id: "dep_seed_nyali_sgr_night",
-      pickupLocationId: nyali.id,
-      dropoffLocationId: sgrId,
-      sgrScheduleSlotId: nightSlot?.id ?? null,
-      departureAt: nightVan,
-      pricePerSeat: 350,
-      driverId,
-    },
-    {
-      id: "dep_seed_mtwapa_from_sgr",
-      pickupLocationId: sgrId,
-      dropoffLocationId: mtwapa.id,
-      sgrScheduleSlotId: fromSlot?.id ?? null,
-      departureAt: afternoon,
-      pricePerSeat: 350,
-      driverId,
-    },
-  ];
-
-  let count = 0;
-  for (const row of rows) {
-    const dep = await prisma.sharedDeparture.upsert({
-      where: { id: row.id },
-      update: {
-        departureAt: row.departureAt,
-        pricePerSeat: row.pricePerSeat,
-        driverId: row.driverId,
-        vehicleId,
-        capacity,
-        status: "scheduled",
-      },
-      create: {
-        id: row.id,
-        pickupLocationId: row.pickupLocationId,
-        dropoffLocationId: row.dropoffLocationId,
-        sgrScheduleSlotId: row.sgrScheduleSlotId,
-        departureAt: row.departureAt,
-        pricePerSeat: row.pricePerSeat,
-        capacity,
-        driverId: row.driverId,
-        vehicleId,
-        status: "scheduled",
-      },
-    });
-
-    const existingSeats = await prisma.sharedDepartureSeat.count({
-      where: { departureId: dep.id },
-    });
-    const occupiedSeats = await prisma.sharedDepartureSeat.count({
-      where: { departureId: dep.id, status: { in: ["paid", "reserved"] } },
-    });
-    const seatRows = layoutSeats.map((seat) => ({
-      departureId: dep.id,
-      seatNumber: seat.seatNumber,
-      seatLabel: seat.seatLabel,
-      row: seat.row,
-      col: seat.col,
-      status: seat.status,
-    }));
-
-    if (existingSeats === 0) {
-      await prisma.sharedDepartureSeat.createMany({ data: seatRows });
-    } else if (existingSeats !== capacity && occupiedSeats === 0) {
-      // Dev-only: fix stale demo seat grids (e.g. 14 seats + wrong driver) without touching paid holds.
-      await prisma.sharedDepartureSeat.deleteMany({ where: { departureId: dep.id } });
-      await prisma.sharedDepartureSeat.createMany({ data: seatRows });
-    }
-    count += 1;
-  }
-
-  return count;
 }
 
 /**

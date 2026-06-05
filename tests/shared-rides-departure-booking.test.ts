@@ -39,29 +39,29 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
       .get(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}`)
       .set("Authorization", `Bearer ${token}`);
     expect(detailBefore.status).toBe(200);
-    const seat3 = detailBefore.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 3);
-    expect(seat3?.status).toBe("available");
+    const seat9 = detailBefore.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 9);
+    expect(seat9?.status).toBe("available");
 
     const reserved = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ seatNumbers: [3, 4] });
+      .send({ seatNumbers: [9, 10] });
     expect(reserved.status).toBe(200);
     expect(reserved.body.reservedUntil).toMatch(/\+03:00$/);
     expect(reserved.body.departure.seats.filter((s: { isMine: boolean }) => s.isMine).map((s: { seatNumber: number }) => s.seatNumber)).toEqual([
-      3, 4,
+      9, 10,
     ]);
 
     const bookingRes = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/bookings`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ seatNumbers: [3, 4] });
+      .send({ seatNumbers: [9, 10] });
     expect(bookingRes.status).toBe(201);
     expect(bookingRes.body.booking).toMatchObject({
       product: "shared_sgr",
       sharedDepartureId: DEMO_DEPARTURE_ID,
       status: "pending_payment",
-      seats: [3, 4],
+      seats: [9, 10],
       subtotal: 700,
       platformFee: 0,
       total: 700,
@@ -78,7 +78,7 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     }
 
     const seats = await prisma.sharedDepartureSeat.findMany({
-      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: { in: [3, 4] } },
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: { in: [9, 10] } },
     });
     if (devAutoPay) {
       expect(seats.every((s) => s.status === "paid")).toBe(true);
@@ -128,7 +128,7 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     const reserve = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ seatNumbers: [7] });
+      .send({ seatNumbers: [11] });
     expect(reserve.status).toBe(200);
 
     const held = await request(app)
@@ -139,7 +139,7 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     expect(held.body.departure.driver?.phone).toBeNull();
 
     await prisma.sharedDepartureSeat.updateMany({
-      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 7 },
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 11 },
       data: { status: "paid" },
     });
 
@@ -159,13 +159,13 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     const hold = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${tokenA}`)
-      .send({ seatNumbers: [5] });
+      .send({ seatNumbers: [12] });
     expect(hold.status).toBe(200);
 
     const conflict = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${tokenB}`)
-      .send({ seatNumbers: [5] });
+      .send({ seatNumbers: [12] });
     expect(conflict.status).toBe(409);
     expect(conflict.body.error.code).toBe("SEAT_NOT_AVAILABLE");
   });
@@ -178,15 +178,15 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ seatNumbers: [6] });
+      .send({ seatNumbers: [13] });
 
     const released = await request(app)
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/release`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ seatNumbers: [6] });
+      .send({ seatNumbers: [13] });
     expect(released.status).toBe(200);
-    const seat6 = released.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 6);
-    expect(seat6?.status).toBe("available");
-    expect(seat6?.isMine).toBe(false);
+    const seat13 = released.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 13);
+    expect(seat13?.status).toBe("available");
+    expect(seat13?.isMine).toBe(false);
   });
 });

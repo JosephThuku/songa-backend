@@ -334,9 +334,31 @@ export const PublishSharedDepartureSchema = registry.register(
     .strict(),
 );
 
+const ReturnSuggestionDtoSchema = z.object({
+  eligible: z.boolean(),
+  reason: z.enum(["passengers_waiting", "round_trip"]).nullable(),
+  seatsRequested: z.number().int(),
+  openTripRequests: z.number().int(),
+  suggestedSlot: SuggestedTripRequestDtoSchema.nullable(),
+  prefill: z
+    .object({
+      departureAt: eatDatetimeSchema,
+      pricePerSeat: z.number().int(),
+      sgrScheduleSlotId: z.string(),
+    })
+    .nullable(),
+  driverAlreadyPublished: z.boolean(),
+});
+
 export const PublishSharedDepartureResponseSchema = registry.register(
   "PublishSharedDepartureResponse",
-  z.object({ departure: SharedDepartureBriefSchema }),
+  z.object({
+    departure: SharedDepartureBriefSchema,
+    returnSuggestion: ReturnSuggestionDtoSchema.nullable().openapi({
+      description:
+        "Opposite-direction return run suggestion when eligible; null when no suitable return slot.",
+    }),
+  }),
 );
 
 export const DepartureIdParamsSchema = z.object({
@@ -857,7 +879,8 @@ registry.registerPath({
   summary: "Driver publishes a scheduled departure",
   description:
     "Creates a van run from a timetable slot without an existing passenger pool. " +
-    "Seat count follows driver vehicle capacity (minimum 4). Driver-only.",
+    "Seat count follows driver vehicle capacity (minimum 4). When a same-day return slot exists, " +
+    "`returnSuggestion` pre-fills the opposite-direction run (e.g. Nyali → SGR then SGR → Nyali). Driver-only.",
   security: [{ bearerAuth: [] }, { cookieAuth: [] }],
   request: {
     body: {

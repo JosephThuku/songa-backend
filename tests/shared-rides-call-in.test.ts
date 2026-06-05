@@ -28,7 +28,7 @@ describe("shared rides call-in booking", () => {
       .send({
         phone: CALLER_PHONE,
         passengerName: "Caller",
-        seatNumbers: [6],
+        seatNumbers: [9],
         pickup: { label: "Beach road", lat: -4.05, lng: 39.72 },
       });
     expect(callIn.status).toBe(201);
@@ -53,7 +53,7 @@ describe("shared rides call-in booking", () => {
 
     const payInvite = await request(app)
       .post(
-        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/6/pay-invite`,
+        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/9/pay-invite`,
       )
       .set("Authorization", `Bearer ${driver.sessionToken}`);
     expect(payInvite.status).toBe(200);
@@ -62,13 +62,13 @@ describe("shared rides call-in booking", () => {
 
     const markCash = await request(app)
       .post(
-        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/6/mark-paid-cash`,
+        `/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/9/mark-paid-cash`,
       )
       .set("Authorization", `Bearer ${driver.sessionToken}`);
     expect(markCash.status).toBe(200);
 
     const seat = await prisma.sharedDepartureSeat.findFirst({
-      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 6 },
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 9 },
     });
     expect(seat?.status).toBe("paid");
 

@@ -356,6 +356,13 @@ async function main() {
     nyaliMorningBoarding: sharedRides.nyaliMorningBoarding,
   });
 
+  if (sharedRides.driverVanDepartures?.length) {
+    console.log("\nCoast van departures (Nyali / Bamburi ↔ SGR, password SongaDev1):");
+    for (const row of sharedRides.driverVanDepartures) {
+      console.log(`  ${row.id.padEnd(32)} ${row.route.padEnd(18)} ${row.seats} seats · ${row.driver}`);
+    }
+  }
+
   if (sharedRides.nyaliMorningBoarding.passengerCount > 0) {
     console.log("\nNyali morning van — paid passengers (driver map QA, seats 3–8):");
     console.log("  Departure: dep_seed_nyali_sgr_morning (Nyali → SGR, ~06:00 van)");

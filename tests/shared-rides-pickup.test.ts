@@ -33,13 +33,13 @@ describe("shared rides pickup pin and driver location", () => {
       .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
       .set("Authorization", `Bearer ${passenger.sessionToken}`)
       .send({
-        seatNumbers: [5],
+        seatNumbers: [9],
         pickup: { label: "City Mall gate", lat: -4.043, lng: 39.71 },
       });
     expect(reserve.status).toBe(200);
 
     const seat = await prisma.sharedDepartureSeat.findFirst({
-      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 5 },
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: 9 },
     });
     expect(seat?.pickupLabel).toBe("City Mall gate");
     expect(seat?.pickupLat).toBe(-4.043);
