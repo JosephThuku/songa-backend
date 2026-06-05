@@ -352,6 +352,75 @@ describe("Shared rides driver supply (Phase 4)", () => {
     expect(new Date(published.body.departure.departureAt).getTime()).toBe(earlyAt.getTime());
   });
 
+  it("publishing Nyali to_sgr suggests same-day from_sgr return", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+
+    const driver = await createAuthSession(app, DRIVER_A_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.sessionToken, { type: "Van", seats: 10 });
+
+    const outboundSlot = await prisma.sgrScheduleSlot.findFirst({
+      where: {
+        direction: "to_sgr",
+        pickupLocation: { slug: "nyali" },
+        vanDepartureTime: "06:00",
+        sgrEventTime: "08:00",
+      },
+    });
+    if (!outboundSlot) throw new Error("nyali 06:00 to_sgr slot missing");
+
+    const parts = getNairobiParts(new Date());
+    const outboundAt = nairobiLocalToUtc(parts, outboundSlot.vanDepartureTime, 1);
+
+    const published = await request(app)
+      .post("/api/shared-rides/departures")
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({
+        sgrScheduleSlotId: outboundSlot.id,
+        departureAt: toNairobiIso(outboundAt),
+        pricePerSeat: 350,
+      });
+    expect(published.status).toBe(201);
+    expect(published.body.returnSuggestion).toMatchObject({
+      eligible: true,
+      reason: expect.stringMatching(/passengers_waiting|round_trip/),
+      suggestedSlot: {
+        direction: "from_sgr",
+        corridorLocationSlug: "nyali",
+      },
+      prefill: {
+        sgrScheduleSlotId: expect.any(String),
+        pricePerSeat: expect.any(Number),
+        departureAt: expect.stringMatching(/\+03:00$/),
+      },
+    });
+
+    const returnSlotId = published.body.returnSuggestion.prefill.sgrScheduleSlotId as string;
+    const returnAt = published.body.returnSuggestion.prefill.departureAt as string;
+
+    const returnPublished = await request(app)
+      .post("/api/shared-rides/departures")
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({
+        sgrScheduleSlotId: returnSlotId,
+        departureAt: returnAt,
+        pricePerSeat: published.body.returnSuggestion.prefill.pricePerSeat,
+      });
+    expect(returnPublished.status).toBe(201);
+    expect(returnPublished.body.departure.routeLabel).toMatch(/SGR.*Nyali/i);
+
+    const secondOutbound = await request(app)
+      .post("/api/shared-rides/departures")
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({
+        sgrScheduleSlotId: outboundSlot.id,
+        departureAt: toNairobiIso(outboundAt),
+        pricePerSeat: 350,
+      });
+    expect(secondOutbound.status).toBe(201);
+    expect(secondOutbound.body.returnSuggestion).toBeNull();
+  });
+
   it("driver can cancel a boarding departure and release seats", async () => {
     const app = buildTestApp();
     await seedSharedRidesCoast(prisma);
