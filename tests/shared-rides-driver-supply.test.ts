@@ -106,6 +106,13 @@ describe("Shared rides driver supply (Phase 4)", () => {
     });
     expect(seats).toBe(14);
 
+    const depRow = await prisma.sharedDeparture.findUnique({
+      where: { id: joined.body.departure.id as string },
+      select: { vehicleId: true, driverId: true },
+    });
+    expect(depRow?.driverId).toBe(driverA.user.id);
+    expect(depRow?.vehicleId).toBeTruthy();
+
     const notifications = await prisma.notification.findMany({
       where: { userId: passengerSession.user.id, type: "shared_ride_matched" },
     });
@@ -168,6 +175,39 @@ describe("Shared rides driver supply (Phase 4)", () => {
       .send({ status: "completed" });
     expect(completed.status).toBe(200);
     expect(completed.body.departure.status).toBe("completed");
+  });
+
+  it("rejects publish when vehicle is not eligible for shared (car, too few seats)", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+
+    const driver = await createAuthSession(app, DRIVER_A_PHONE, "driver");
+    await setupDriverForDispatch(app, driver.sessionToken, { type: "Car", seats: 6 });
+
+    const slot = await prisma.sgrScheduleSlot.findFirst({
+      where: {
+        direction: "to_sgr",
+        pickupLocation: { slug: "nyali" },
+        dropoffLocation: { slug: "sgr-miritini" },
+        trainService: "inter_county",
+        vanDepartureTime: "06:00",
+      },
+    });
+    if (!slot) throw new Error("nyali slot missing");
+
+    const parts = getNairobiParts(new Date());
+    const vanAt = nairobiLocalToUtc(parts, slot.vanDepartureTime, 1);
+
+    const published = await request(app)
+      .post("/api/shared-rides/departures")
+      .set("Authorization", `Bearer ${driver.sessionToken}`)
+      .send({
+        sgrScheduleSlotId: slot.id,
+        departureAt: toNairobiIso(vanAt),
+        pricePerSeat: 350,
+      });
+    expect(published.status).toBe(409);
+    expect(published.body.error.code).toBe("VEHICLE_NOT_ELIGIBLE_FOR_SHARED");
   });
 
   it("driver publishes a standalone departure", async () => {

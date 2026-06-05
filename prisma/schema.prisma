@@ -131,6 +131,7 @@ model Vehicle {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   driverProfiles DriverProfile[]
+  sharedDepartures SharedDeparture[]
 }
 
 model Ride {
@@ -453,6 +454,9 @@ model SharedDeparture {
   id                  String                @id @default(cuid())
   driverId            String?
   driver              User?                 @relation("DriverSharedDepartures", fields: [driverId], references: [id], onDelete: SetNull)
+  /// Vehicle snapshot when the departure was opened (seat grid source).
+  vehicleId           String?
+  vehicle             Vehicle?              @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   pickupLocationId    String
   pickupLocation      CorridorLocation      @relation("DeparturePickup", fields: [pickupLocationId], references: [id])
   dropoffLocationId   String
