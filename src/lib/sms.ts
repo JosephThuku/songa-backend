@@ -83,24 +83,67 @@ export class WasilianaProvider implements SmsProvider {
 
 let cached: SmsProvider | null = null;
 
-export function getSmsProvider(): SmsProvider {
-  if (cached) return cached;
+export interface SmsEnvConfig {
+  apiKey?: string;
+  senderId?: string;
+  baseUrl?: string;
+}
 
-  const apiKey = process.env.WASILIANA_API_KEY?.trim();
-  const senderId = process.env.WASILIANA_SENDER_ID?.trim();
+function resolveSmsConfig(env?: SmsEnvConfig): {
+  apiKey: string | undefined;
+  senderId: string;
+  baseUrl: string;
+} {
+  const apiKey = (env?.apiKey ?? process.env.WASILIANA_API_KEY)?.trim() || undefined;
+  const senderId = (env?.senderId ?? process.env.WASILIANA_SENDER_ID)?.trim() || "SONGA";
+  const baseUrl =
+    (env?.baseUrl ?? process.env.WASILIANA_BASE_URL)?.trim() || "https://api.wasiliana.com";
+  return { apiKey, senderId, baseUrl };
+}
+
+/** True when Wasiliana credentials are configured (real SMS, not console fallback). */
+export function isSmsConfigured(env?: SmsEnvConfig): boolean {
+  return Boolean(resolveSmsConfig(env).apiKey);
+}
+
+export function getSmsProvider(env?: SmsEnvConfig): SmsProvider {
+  if (cached && !env) return cached;
+
+  const { apiKey, senderId, baseUrl } = resolveSmsConfig(env);
 
   if (apiKey) {
-    cached = new WasilianaProvider({
-      apiKey,
-      senderId: senderId || "SONGA",
-      baseUrl: process.env.WASILIANA_BASE_URL?.trim() || "https://api.wasiliana.com",
-    });
-    logger.info({ senderId: senderId || "SONGA" }, "SMS provider: Wasiliana");
-  } else {
-    cached = new ConsoleSmsProvider();
+    const provider = new WasilianaProvider({ apiKey, senderId, baseUrl });
+    if (!env) {
+      cached = provider;
+      logger.info({ senderId }, "SMS provider: Wasiliana");
+    }
+    return provider;
+  }
+
+  const consoleProvider = new ConsoleSmsProvider();
+  if (!env) {
+    cached = consoleProvider;
     logger.info("WASILIANA_API_KEY not set — using console SMS fallback (dev only)");
   }
-  return cached;
+  return consoleProvider;
+}
+
+/** Boot-time diagnostic — call after loadEnv(). */
+export function logSmsProviderStatus(env?: SmsEnvConfig): void {
+  const { apiKey, senderId } = resolveSmsConfig(env);
+  if (apiKey) {
+    logger.info({ senderId }, "OTP SMS: Wasiliana configured");
+    return;
+  }
+  const senderConfigured = Boolean((env?.senderId ?? process.env.WASILIANA_SENDER_ID)?.trim());
+  if (senderConfigured) {
+    logger.warn(
+      { senderId },
+      "WASILIANA_SENDER_ID is set but WASILIANA_API_KEY is empty — OTP SMS will NOT be sent (console fallback only)",
+    );
+    return;
+  }
+  logger.info("OTP SMS: console fallback (set WASILIANA_API_KEY for real SMS)");
 }
 
 /** Test-only — override the resolved provider. Pass `null` to reset. */

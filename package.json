@@ -28,6 +28,7 @@
     "shared-rides:release-expired-holds": "tsx scripts/release-expired-seat-holds.ts",
     "simulate:ride": "tsx scripts/simulate-ride-flow.ts",
     "user:reset-driver": "tsx scripts/reset-user-by-phone.ts",
+    "sms:test": "tsx scripts/test-sms-otp.ts",
     "db:push": "prisma db push",
     "db:sync": "prisma db push && prisma generate",
     "db:ensure-client": "tsx scripts/ensure-prisma-client.ts",

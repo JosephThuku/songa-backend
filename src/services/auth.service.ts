@@ -22,7 +22,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { prisma } from "../lib/prisma.js";
 import { getRedis } from "../lib/redis.js";
 import { toUserDto, type UserDto } from "../lib/responses.js";
-import { getSmsProvider } from "../lib/sms.js";
+import { getSmsProvider, isSmsConfigured } from "../lib/sms.js";
 
 export type { Role };
 
@@ -102,6 +102,13 @@ async function dispatchOtpSms(phone: string, code: string): Promise<void> {
     });
   if (!result.ok) {
     logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
+    if (isSmsConfigured()) {
+      throw new AppError(
+        "SMS_DELIVERY_FAILED",
+        503,
+        "Could not send the verification code by SMS. Check your number and try again shortly.",
+      );
+    }
   }
 }
 

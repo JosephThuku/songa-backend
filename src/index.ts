@@ -16,10 +16,16 @@ import {
 } from "./lib/google-places-key.js";
 import { attachSocketIo } from "./lib/socket.js";
 import { startExpiredSeatHoldSweep } from "./lib/expired-seat-hold-sweep.js";
+import { logSmsProviderStatus } from "./lib/sms.js";
 
 async function main(): Promise<void> {
   assertPrismaClientCurrent();
   const env = loadEnv();
+  logSmsProviderStatus({
+    apiKey: env.WASILIANA_API_KEY,
+    senderId: env.WASILIANA_SENDER_ID,
+    baseUrl: env.WASILIANA_BASE_URL,
+  });
 
   if (shouldUseDummyPlaces()) {
     logger.info(
