@@ -5,8 +5,10 @@ import { AppError, asyncHandler } from "../lib/errors.js";
 import { SESSION_TTL_SECONDS } from "../lib/jwt.js";
 import {
   ConfirmRegistrationRequestSchema,
+  ForgotPasswordRequestSchema,
   LoginRequestSchema,
   RegisterRequestSchema,
+  ResetPasswordRequestSchema,
 } from "../schemas/auth.schema.js";
 import { rateLimit, requestIp } from "../middleware/rate-limit.js";
 import {
@@ -15,11 +17,13 @@ import {
 } from "../middleware/require-auth.js";
 import {
   confirmRegistration,
+  forgotPassword,
   getMe,
   isWebClient,
   login,
   logout,
   register,
+  resetPassword,
 } from "../services/auth.service.js";
 
 const router: Router = Router();
@@ -164,6 +168,81 @@ router.post(
       sessionToken: result.sessionToken,
       user: result.user,
     });
+  }),
+);
+
+// ---------- POST /api/auth/password/forgot ----------
+router.post(
+  "/password/forgot",
+  rateLimit({
+    prefix: "auth:forgot:ip",
+    max: 10,
+    windowMs: 60 * 1000,
+    identifier: (req) => requestIp(req),
+    message: "Too many password reset requests. Try again in a minute.",
+  }),
+  rateLimit({
+    prefix: "auth:forgot:identifier",
+    max: 3,
+    windowMs: 15 * 60 * 1000,
+    identifier: (req) => {
+      const id = (req.body as { identifier?: unknown })?.identifier;
+      return typeof id === "string" && id.length > 0 ? id : null;
+    },
+    message: "Too many password reset requests for this account. Try again later.",
+  }),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(ForgotPasswordRequestSchema, req.body);
+    const result = await forgotPassword({
+      identifier: data.identifier,
+      role: data.role,
+    });
+    const showDevCode = process.env.NODE_ENV !== "production" && req.header("x-dev-show-otp") === "1";
+    const body: { ok: true; expiresInSeconds: number; devCode?: string } = {
+      ok: true,
+      expiresInSeconds: result.expiresInSeconds,
+    };
+    if (showDevCode && result.devCode) body.devCode = result.devCode;
+    res.status(200).json(body);
+  }),
+);
+
+// ---------- POST /api/auth/password/reset ----------
+router.post(
+  "/password/reset",
+  rateLimit({
+    prefix: "auth:reset:identifier",
+    max: 5,
+    windowMs: 5 * 60 * 1000,
+    identifier: (req) => {
+      const id = (req.body as { identifier?: unknown })?.identifier;
+      return typeof id === "string" && id.length > 0 ? id : null;
+    },
+    message: "Too many reset attempts. Request a new code.",
+  }),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(ResetPasswordRequestSchema, req.body);
+    const ua = req.header("user-agent") ?? null;
+    const result = await resetPassword({
+      identifier: data.identifier,
+      role: data.role,
+      code: data.code,
+      password: data.password,
+      userAgent: ua,
+      ip: requestIp(req),
+    });
+
+    if (isWebClient(ua)) {
+      res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: SESSION_TTL_SECONDS * 1000,
+        path: "/",
+      });
+    }
+
+    res.status(200).json(result);
   }),
 );
 

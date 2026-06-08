@@ -17,6 +17,7 @@ execSync("npx tsx scripts/apply-test-schema.ts", { stdio: "pipe", env: process.e
 const { prisma } = await import("../src/lib/prisma.js");
 const { resetRedisForTest, _setRedis } = await import("../src/lib/redis.js");
 const { clearAllOfferTimeouts } = await import("../src/lib/offer-timeout.js");
+const { ConsoleSmsProvider, _setSmsProvider } = await import("../src/lib/sms.js");
 
 async function resetDatabase(): Promise<void> {
   // Stop any pending 15s offer-redispatch timers from a prior test firing
@@ -57,6 +58,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await new Promise<void>((resolve) => setTimeout(resolve, 75));
+  delete process.env.WASILIANA_API_KEY;
+  _setSmsProvider(new ConsoleSmsProvider());
   await resetDatabase();
 });
 

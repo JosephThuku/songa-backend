@@ -70,6 +70,43 @@ export const LoginRequestSchema = registry.register(
     .strict(),
 );
 
+export const ForgotPasswordRequestSchema = registry.register(
+  "ForgotPasswordRequest",
+  z
+    .object({
+      identifier: z
+        .string({ required_error: "identifier is required" })
+        .min(1, "identifier is required")
+        .openapi({
+          example: "+254712000001",
+          description: "E.164 phone or email address for the account.",
+        }),
+      role: roleSchema,
+    })
+    .strict(),
+);
+
+export const ResetPasswordRequestSchema = registry.register(
+  "ResetPasswordRequest",
+  z
+    .object({
+      identifier: z
+        .string({ required_error: "identifier is required" })
+        .min(1, "identifier is required")
+        .openapi({
+          example: "+254712000001",
+          description: "E.164 phone or email address for the account.",
+        }),
+      role: roleSchema,
+      code: z
+        .string({ required_error: "code is required" })
+        .regex(/^\d{4,6}$/, "code must be 4–6 digits")
+        .openapi({ example: "123456" }),
+      password: passwordSchema.openapi({ example: "MyNewSecurePass1" }),
+    })
+    .strict(),
+);
+
 export const RegisterResponseSchema = registry.register(
   "RegisterResponse",
   z.object({
@@ -91,6 +128,24 @@ export const ConfirmRegistrationResponseSchema = registry.register(
 export const LoginResponseSchema = registry.register(
   "LoginResponse",
   z.object({
+    sessionToken: z.string(),
+    user: UserSchema,
+  }),
+);
+
+export const ForgotPasswordResponseSchema = registry.register(
+  "ForgotPasswordResponse",
+  z.object({
+    ok: z.literal(true),
+    expiresInSeconds: z.number().int(),
+    devCode: z.string().optional(),
+  }),
+);
+
+export const ResetPasswordResponseSchema = registry.register(
+  "ResetPasswordResponse",
+  z.object({
+    ok: z.literal(true),
     sessionToken: z.string(),
     user: UserSchema,
   }),
@@ -234,6 +289,48 @@ registry.registerPath({
   responses: {
     200: { description: "Session created.", content: { "application/json": { schema: LoginResponseSchema } } },
     401: { description: "Invalid credentials.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/password/forgot",
+  tags: ["Auth"],
+  summary: "Request a password-reset OTP",
+  description:
+    "Sends a 6-digit OTP to the account phone when a verified user exists for the identifier and role. " +
+    "Always returns `{ ok: true }` so callers cannot enumerate registered accounts. " +
+    "In non-production with `x-dev-show-otp: 1`, the code is returned when an OTP was issued.",
+  request: {
+    body: { required: true, content: { "application/json": { schema: ForgotPasswordRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Request accepted (OTP sent only when account exists).",
+      content: { "application/json": { schema: ForgotPasswordResponseSchema } },
+    },
+    429: { description: "Rate-limited.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/password/reset",
+  tags: ["Auth"],
+  summary: "Confirm password-reset OTP and set a new password",
+  description:
+    "Verifies the reset OTP, updates the password, revokes existing sessions, and returns a fresh 30-day session.",
+  request: {
+    body: { required: true, content: { "application/json": { schema: ResetPasswordRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Password updated and session created.",
+      content: { "application/json": { schema: ResetPasswordResponseSchema } },
+    },
+    400: { description: "Weak password or invalid input.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    401: { description: "Invalid or expired OTP.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    429: { description: "Rate-limited.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
   },
 });
 
