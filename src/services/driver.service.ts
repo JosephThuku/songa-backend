@@ -1,10 +1,11 @@
-import { Prisma, RidePhase } from "@prisma/client";
+import { RidePhase } from "@prisma/client";
 import { driverLocationFreshSince } from "../lib/driver-location-freshness.js";
 import { AppError } from "../lib/errors.js";
 import { estimatePickupEtaMinutes, haversineDistanceKm, type LatLng } from "../lib/geo.js";
 import { indexDriverLocation, removeDriverFromGeoIndex } from "../lib/driver-geo.js";
 import { prisma } from "../lib/prisma.js";
 import { publishRideChanged } from "../lib/ride-events.js";
+import { persistDriverLocation } from "../lib/driver-location.js";
 import { syncActiveRideFromDriverLocation } from "../lib/ride-location-sync.js";
 
 export interface DriverOnlineResult {
@@ -77,17 +78,6 @@ export interface NearbyDriverDto {
   dailyRoute: null;
   estimatedFare: { amount: number; currency: "KES"; bookingMode: "pay_on_arrival" };
   listingId: null;
-}
-
-function locationJson(input: DriverLocationInput, updatedAt: Date): Prisma.InputJsonObject {
-  return {
-    lat: input.lat,
-    lng: input.lng,
-    ...(input.heading !== undefined ? { heading: input.heading } : {}),
-    ...(input.speedKmh !== undefined ? { speedKmh: input.speedKmh } : {}),
-    ...(input.accuracyM !== undefined ? { accuracyM: input.accuracyM } : {}),
-    updatedAt: updatedAt.toISOString(),
-  };
 }
 
 function parseLocation(value: unknown): { lat: number; lng: number; heading?: number; speedKmh?: number } | null {
@@ -193,13 +183,16 @@ export async function updateDriverLocation(driverId: string, input: DriverLocati
     throw new AppError("DRIVER_NOT_APPROVED", 403, "Driver is not approved.");
   }
 
-  const updatedAt = input.recordedAt ? new Date(input.recordedAt) : new Date();
-  if (Number.isNaN(updatedAt.getTime())) throw new AppError("INVALID_INPUT", 400, "recordedAt is invalid.");
-  const location = locationJson(input, updatedAt);
+  const recordedAt = input.recordedAt ? new Date(input.recordedAt) : new Date();
+  if (Number.isNaN(recordedAt.getTime())) throw new AppError("INVALID_INPUT", 400, "recordedAt is invalid.");
 
-  await prisma.driverProfile.update({
-    where: { userId: driverId },
-    data: { location, locationUpdatedAt: updatedAt },
+  const payload = await persistDriverLocation(prisma, driverId, {
+    lat: input.lat,
+    lng: input.lng,
+    heading: input.heading,
+    speedKmh: input.speedKmh,
+    accuracyM: input.accuracyM,
+    recordedAt,
   });
 
   const activeRide = await prisma.ride.findFirst({
@@ -210,7 +203,7 @@ export async function updateDriverLocation(driverId: string, input: DriverLocati
   }
 
   if (activeRide) {
-    await syncActiveRideFromDriverLocation(activeRide.id, location);
+    await syncActiveRideFromDriverLocation(activeRide.id, payload);
   }
 }
 

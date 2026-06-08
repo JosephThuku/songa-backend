@@ -3,6 +3,13 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
 import { prisma } from "../lib/prisma.js";
+import {
+  bookingSeatInclude,
+  persistBookingSeats,
+  seatNumbersFromBooking,
+  serializeBookingSeats,
+} from "../lib/booking-seats.js";
+import { persistPlacePair } from "../lib/place-persist.js";
 import type { PlaceDto } from "../lib/responses.js";
 import { getMpesaDisplayConfig } from "../config/mpesa-display.js";
 import { isMpesaConfigured } from "../config/mpesa.js";
@@ -27,38 +34,39 @@ export interface StartPaymentInput {
   mpesaChannel?: "stk" | "paybill" | "till";
 }
 
-function placeJson(place: PlaceDto): Prisma.InputJsonObject {
-  return {
-    ...(place.placeId ? { placeId: place.placeId } : {}),
-    label: place.label,
-    lat: place.lat,
-    lng: place.lng,
-  };
-}
-
 function subtotal(input: CreateBookingInput): number {
   const fare = computeFare(input.pickup, input.dropoff);
   return fare.total * Math.max(1, input.seats.length);
 }
 
-const bookingInclude = { payments: { orderBy: { createdAt: "desc" as const }, take: 1 } };
+const bookingInclude = {
+  payments: { orderBy: { createdAt: "desc" as const }, take: 1 },
+  ...bookingSeatInclude,
+};
 
 export async function createBooking(input: CreateBookingInput) {
   if (input.seats.length === 0) throw new AppError("INVALID_INPUT", 400, "At least one seat is required.");
   const bookingSubtotal = subtotal(input);
-  const booking = await prisma.booking.create({
-    data: {
-      id: `BKG-${cuid()}`,
-      passengerId: input.passengerId,
-      tripId: input.tripId ?? null,
-      seats: input.seats.join(","),
-      subtotal: bookingSubtotal,
-      platformFee: PLATFORM_FEE,
-      total: bookingSubtotal + PLATFORM_FEE,
-      pickup: placeJson(input.pickup),
-      dropoff: placeJson(input.dropoff),
-    },
-    include: bookingInclude,
+  const seatNumbers = input.seats;
+  const booking = await prisma.$transaction(async (tx) => {
+    const places = await persistPlacePair(tx, input.pickup, input.dropoff);
+    const created = await tx.booking.create({
+      data: {
+        id: `BKG-${cuid()}`,
+        passengerId: input.passengerId,
+        tripId: input.tripId ?? null,
+        seats: serializeBookingSeats(seatNumbers),
+        subtotal: bookingSubtotal,
+        platformFee: PLATFORM_FEE,
+        total: bookingSubtotal + PLATFORM_FEE,
+        pickup: places.pickup,
+        dropoff: places.dropoff,
+        pickupPlaceId: places.pickupPlaceId,
+        dropoffPlaceId: places.dropoffPlaceId,
+      },
+    });
+    await persistBookingSeats(tx, created.id, seatNumbers);
+    return tx.booking.findUniqueOrThrow({ where: { id: created.id }, include: bookingInclude });
   });
   return toBookingDto(booking);
 }
@@ -255,7 +263,7 @@ function toBookingDto(booking: Awaited<ReturnType<typeof prisma.booking.findUniq
     product: booking.product ?? "on_demand",
     sharedDepartureId: booking.sharedDepartureId ?? null,
     status: booking.status,
-    seats: booking.seats ? booking.seats.split(",").map((seat) => Number.parseInt(seat, 10)) : null,
+    seats: seatNumbersFromBooking(booking),
     subtotal: booking.subtotal,
     platformFee: booking.platformFee,
     total: booking.total,

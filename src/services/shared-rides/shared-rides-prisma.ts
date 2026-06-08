@@ -37,11 +37,8 @@ export type SharedTripRequestWithRelations = {
   status: string;
   seatsRequested: number;
   requestedDepartureAt: Date;
-  departureDate: string;
-  direction: "to_sgr" | "from_sgr";
   sgrScheduleSlotId: string;
   matchedDepartureId: string | null;
   notes: string | null;
-  corridorLocation: CorridorLocationBrief;
   sgrScheduleSlot: SgrScheduleSlotWithLocations;
 };

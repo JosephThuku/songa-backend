@@ -3,6 +3,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { ZodError } from "zod";
 import { logger } from "./logger.js";
+import { mapPrismaError } from "./prisma-errors.js";
 
 export class AppError extends Error {
   public readonly code: string;
@@ -72,6 +73,19 @@ export function errorMiddleware(
       },
     };
     res.status(400).json(body);
+    return;
+  }
+
+  const prismaError = mapPrismaError(err);
+  if (prismaError) {
+    const body: ErrorBody = {
+      error: {
+        code: prismaError.code,
+        message: prismaError.message,
+      },
+    };
+    if (prismaError.details !== undefined) body.error.details = prismaError.details;
+    res.status(prismaError.status).json(body);
     return;
   }
 

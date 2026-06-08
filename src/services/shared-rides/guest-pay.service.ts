@@ -1,5 +1,6 @@
 import { AppError } from "../../lib/errors.js";
 import { verifyBookingPayInvite } from "../../lib/booking-pay-invite.js";
+import { bookingSeatInclude, seatNumbersFromBooking } from "../../lib/booking-seats.js";
 import { prisma } from "../../lib/prisma.js";
 import { startPayment } from "../booking.service.js";
 
@@ -14,6 +15,7 @@ export async function getPayInviteSummary(token: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: payload.bid },
     include: {
+      ...bookingSeatInclude,
       passenger: { select: { id: true, phone: true, name: true } },
       sharedDeparture: {
         include: {
@@ -34,7 +36,7 @@ export async function getPayInviteSummary(token: string) {
       status: booking.status,
       total: booking.total,
       currency: booking.currency,
-      seats: booking.seats?.split(",").map((s) => Number.parseInt(s, 10)) ?? [],
+      seats: seatNumbersFromBooking(booking) ?? [],
       routeLabel: booking.sharedDeparture
         ? `${booking.sharedDeparture.pickupLocation.name} → ${booking.sharedDeparture.dropoffLocation.name}`
         : null,

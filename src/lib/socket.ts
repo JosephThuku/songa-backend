@@ -15,11 +15,19 @@ import {
   RideOfferEventSchema,
   RideUpdatedEventSchema,
 } from "./realtime-events.js";
+import { rideSeatInclude } from "./ride-seats.js";
 import { toRideDto, type RideDtoInput } from "./responses.js";
 
 const rideInclude = {
   passenger: true,
-  driver: { include: { driverProfile: { include: { vehicle: true } } } },
+  driver: {
+    include: {
+      driverProfile: { include: { vehicle: true } },
+      driverLocation: true,
+    },
+  },
+  driverDeclines: { select: { driverId: true } },
+  ...rideSeatInclude,
 } as const;
 
 function safeValidate<T>(

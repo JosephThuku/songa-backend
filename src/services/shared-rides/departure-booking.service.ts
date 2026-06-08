@@ -3,6 +3,9 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { SHARED_SGR_PLATFORM_FEE_KES } from "../../config/shared-rides.js";
 import { prisma } from "../../lib/prisma.js";
+import { persistBookingSeats, seatNumbersFromBooking, serializeBookingSeats } from "../../lib/booking-seats.js";
+import { persistPlacePair } from "../../lib/place-persist.js";
+import { sharedBookingPlaceInputs } from "../../lib/shared-booking-places.js";
 import type { PlaceDto } from "../../lib/responses.js";
 import { toPlaceDto } from "../../lib/responses.js";
 import { assertSeatsHeldForBooking, releaseExpiredSeatHolds } from "./departure-seats.service.js";
@@ -26,10 +29,6 @@ function placeFromLocation(loc: {
     lat: loc.lat ?? 0,
     lng: loc.lng ?? 0,
   };
-}
-
-function placeJson(place: PlaceDto): Prisma.InputJsonValue {
-  return place as unknown as Prisma.InputJsonValue;
 }
 
 export type SharedDepartureBookingDto = {
@@ -106,22 +105,33 @@ export async function createSharedDepartureBooking(
   const total = subtotal + platformFee;
   const bookingId = `BKG-${cuid()}`;
 
+  const placeInputs = sharedBookingPlaceInputs(
+    departure,
+    pickupPlace,
+    dropoffPlace,
+    isToSgr,
+  );
+
   await prisma.$transaction(async (tx) => {
+    const places = await persistPlacePair(tx, placeInputs.pickup, placeInputs.dropoff);
     await tx.booking.create({
       data: {
         id: bookingId,
         passengerId,
         product: "shared_sgr",
         sharedDepartureId: departureId,
-        seats: seatNumbers.join(","),
+        seats: serializeBookingSeats(seatNumbers),
         subtotal,
         platformFee,
         total,
-        pickup: placeJson(pickupPlace),
-        dropoff: placeJson(dropoffPlace),
+        pickup: places.pickup,
+        dropoff: places.dropoff,
+        pickupPlaceId: places.pickupPlaceId,
+        dropoffPlaceId: places.dropoffPlaceId,
         status: "pending_payment",
       },
     });
+    await persistBookingSeats(tx, bookingId, seatNumbers, { departureId });
 
     await tx.sharedDepartureSeat.updateMany({
       where: {
@@ -168,6 +178,7 @@ function bookingRowToDto(row: {
   sharedDepartureId: string | null;
   status: string;
   seats: string | null;
+  seatRows?: { seatNumber: number }[];
   subtotal: number;
   platformFee: number;
   total: number;
@@ -175,10 +186,7 @@ function bookingRowToDto(row: {
   dropoff: Prisma.JsonValue;
   createdAt: Date;
 }): SharedDepartureBookingDto {
-  const seatNumbers = (row.seats ?? "")
-    .split(",")
-    .map((value) => Number.parseInt(value.trim(), 10))
-    .filter((value) => Number.isFinite(value));
+  const seatNumbers = seatNumbersFromBooking(row) ?? [];
   return {
     id: row.id,
     product: "shared_sgr",
@@ -213,6 +221,7 @@ export async function listMySharedBookings(
     orderBy: { createdAt: "desc" },
     take: 30,
     include: {
+      seatRows: { orderBy: { seatNumber: "asc" } },
       sharedDeparture: {
         include: {
           pickupLocation: true,

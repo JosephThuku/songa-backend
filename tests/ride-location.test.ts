@@ -133,11 +133,10 @@ describe("Driver location → ride phase sync", () => {
 
     // etaMinutes should be very small (≤ 1 minute for 0.13 km).
     expect(ride.etaMinutes).toBeGreaterThanOrEqual(1);
-    // driverLocation should be updated on the ride.
-    const loc = ride.driverLocation as Record<string, number> | null;
-    expect(loc).not.toBeNull();
-    expect(loc!.lat).toBeCloseTo(NEAR_LOCATION.lat, 4);
-    expect(loc!.lng).toBeCloseTo(NEAR_LOCATION.lng, 4);
+    const driverLoc = await prisma.driverLocation.findUnique({ where: { driverId: driver.userId } });
+    expect(driverLoc).not.toBeNull();
+    expect(driverLoc!.lat).toBeCloseTo(NEAR_LOCATION.lat, 4);
+    expect(driverLoc!.lng).toBeCloseTo(NEAR_LOCATION.lng, 4);
   });
 
   it("transitions from driver_en_route to driver_arriving as driver moves closer", async () => {

@@ -1,3 +1,4 @@
+import { formatNairobiDepartureLabel } from "../../lib/nairobi-time.js";
 import { logger } from "../../lib/logger.js";
 import { getSmsProvider } from "../../lib/sms.js";
 import { prisma } from "../../lib/prisma.js";
@@ -36,7 +37,7 @@ export async function notifyPassengersTripRequestMatched(input: {
     await createNotification({
       userId: passenger.id,
       title: "Shared van confirmed",
-      body: `${input.routeLabel} · departs ${input.departureAtIso}. Choose your seats and pay.`,
+      body: `${input.routeLabel} · departs ${formatNairobiDepartureLabel(input.departureAtIso)}. Choose your seats and pay.`,
       type: "shared_ride_matched",
       deepLink,
       metadata: {
@@ -84,7 +85,7 @@ export async function notifyDriversPassengerPoolWaiting(input: {
 
   const seatLabel = input.poolSeatsTotal === 1 ? "1 seat" : `${input.poolSeatsTotal} seats`;
   const body =
-    `${input.routeLabel} · ${input.departureAtIso}. ` +
+    `${input.routeLabel} · ${formatNairobiDepartureLabel(input.departureAtIso)}. ` +
     `${seatLabel} waiting — join the pool to claim this run.`;
 
   await Promise.all(

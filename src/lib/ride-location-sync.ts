@@ -1,4 +1,5 @@
-import { RidePhase, type Prisma } from "@prisma/client";
+import { RidePhase } from "@prisma/client";
+import type { DriverLocationPayload } from "./driver-location.js";
 import { DRIVER_ARRIVING_KM, haversineDistanceKm } from "./geo.js";
 import { etaMinutesForDistance } from "./routing.js";
 import { prisma } from "./prisma.js";
@@ -38,7 +39,7 @@ export function phaseFromPickupDistance(
 
 export async function syncActiveRideFromDriverLocation(
   rideId: string,
-  location: Prisma.InputJsonObject,
+  location: DriverLocationPayload,
 ): Promise<void> {
   const ride = await prisma.ride.findUnique({ where: { id: rideId } });
   if (!ride) return;
@@ -85,7 +86,6 @@ export async function syncActiveRideFromDriverLocation(
   const updated = await prisma.ride.update({
     where: { id: rideId },
     data: {
-      driverLocation: location,
       etaMinutes,
       ...(nextPhase !== ride.phase ? { phase: nextPhase } : {}),
       distanceKm,

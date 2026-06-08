@@ -1,10 +1,10 @@
 import type { SgrScheduleSlotRef, SharedRideDirection } from "../../domain/shared-rides.js";
 import { AppError } from "../../lib/errors.js";
 import { getNairobiParts, nairobiLocalToUtc, toNairobiIso, type NairobiParts } from "../../lib/nairobi-time.js";
+import { derivedDepartureDate, zoneForTripDirection } from "../../lib/trip-request-derived.js";
 import { sharedRidesConfig } from "../../lib/shared-rides-config.js";
 import { prisma } from "../../lib/prisma.js";
 import {
-  corridorLocationBriefSelect,
   sgrSlotWithLocationsInclude,
   type SharedTripRequestWithRelations,
   type SgrScheduleSlotWithLocations,
@@ -13,7 +13,6 @@ import { slotDetail, slotHeadline, suggestionTrainLabel } from "./slot-labels.js
 import { notifyDriversPassengerPoolWaiting } from "./shared-rides-notify.js";
 
 const tripRequestInclude = {
-  corridorLocation: { select: corridorLocationBriefSelect },
   sgrScheduleSlot: { include: sgrSlotWithLocationsInclude },
 } as const;
 
@@ -155,21 +154,23 @@ export type CreateTripRequestResult = {
 export type MyTripRequestItemDto = CreateTripRequestResult;
 
 export function toTripRequestDto(tripRequest: SharedTripRequestWithRelations): TripRequestDto {
-  const slot = toSlotRef(tripRequest.sgrScheduleSlot);
-  const zone = tripRequest.corridorLocation;
+  const slotRow = tripRequest.sgrScheduleSlot;
+  const slot = toSlotRef(slotRow);
+  const direction = slotRow.direction;
+  const zone = zoneForTripDirection(slotRow, direction);
   return {
     id: tripRequest.id,
     status: tripRequest.status,
     poolSeatsTotal: tripRequest.seatsRequested,
     requestedDepartureAt: toNairobiIso(tripRequest.requestedDepartureAt),
-    departureDate: tripRequest.departureDate,
-    direction: tripRequest.direction,
+    departureDate: derivedDepartureDate(tripRequest.requestedDepartureAt),
+    direction,
     corridorLocation: { id: zone.id, slug: zone.slug, name: zone.name },
     sgrScheduleSlotId: tripRequest.sgrScheduleSlotId,
-    headline: slotHeadline(tripRequest.direction, slot.trainService, slot.sgrEventTime),
-    detail: slotDetail(zone.name, tripRequest.direction, slot.vanDepartureTime, slot.suggestedPricePerSeat),
+    headline: slotHeadline(direction, slot.trainService, slot.sgrEventTime),
+    detail: slotDetail(zone.name, direction, slot.vanDepartureTime, slot.suggestedPricePerSeat),
     trainLabel: suggestionTrainLabel(
-      tripRequest.direction,
+      direction,
       slot.trainService,
       slot.sgrEventTime,
       slot.vanDepartureTime,
@@ -209,6 +210,14 @@ export async function createTripRequest(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(departureDate)) {
     throw new AppError("INVALID_INPUT", 400, "departureDate must be YYYY-MM-DD.");
   }
+  const derivedDate = derivedDepartureDate(requestedDepartureAt);
+  if (departureDate !== derivedDate) {
+    throw new AppError(
+      "INVALID_INPUT",
+      400,
+      "departureDate does not match vanDepartureAt in Nairobi calendar.",
+    );
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     let tripRequest = await tx.sharedTripRequest.findFirst({
@@ -225,10 +234,7 @@ export async function createTripRequest(
       tripRequest = await tx.sharedTripRequest.create({
         data: {
           sgrScheduleSlotId: input.sgrScheduleSlotId,
-          corridorLocationId: input.corridorLocationId,
-          direction: input.direction,
           requestedDepartureAt,
-          departureDate,
           seatsRequested: 0,
           status: "open",
           notes: input.notes ?? null,
@@ -283,16 +289,17 @@ export async function createTripRequest(
   if (result.poolTotal > 0) {
     const tripRequest = result.tripRequest as SharedTripRequestWithRelations;
     const slot = tripRequest.sgrScheduleSlot as SgrScheduleSlotWithLocations;
+    const direction = slot.direction;
     const from =
-      tripRequest.direction === "to_sgr" ? slot.pickupLocation.name : slot.dropoffLocation.name;
+      direction === "to_sgr" ? slot.pickupLocation.name : slot.dropoffLocation.name;
     const to =
-      tripRequest.direction === "to_sgr" ? slot.dropoffLocation.name : slot.pickupLocation.name;
+      direction === "to_sgr" ? slot.dropoffLocation.name : slot.pickupLocation.name;
     void notifyDriversPassengerPoolWaiting({
       tripRequestId: tripRequest.id,
       routeLabel: `${from} → ${to}`,
       departureAtIso: toNairobiIso(tripRequest.requestedDepartureAt),
       poolSeatsTotal: result.poolTotal,
-      direction: tripRequest.direction,
+      direction,
     }).catch((err) => {
       console.warn("[shared-rides] driver pool notify failed", err);
     });

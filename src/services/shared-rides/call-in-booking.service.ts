@@ -1,5 +1,4 @@
 import cuid from "cuid";
-import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { callInHoldExpiresAt, callInHoldExpiresInSeconds } from "../../lib/call-in-hold.js";
 import { payInviteLink, signBookingPayInvite } from "../../lib/booking-pay-invite.js";
@@ -8,6 +7,9 @@ import { prisma } from "../../lib/prisma.js";
 import { getSmsProvider } from "../../lib/sms.js";
 import { logger } from "../../lib/logger.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
+import { persistBookingSeats, serializeBookingSeats } from "../../lib/booking-seats.js";
+import { persistPlacePair } from "../../lib/place-persist.js";
+import { sharedBookingPlaceInputs } from "../../lib/shared-booking-places.js";
 import type { PickupPinDto } from "./shared-rides-pickup.js";
 import {
   defaultNeighborhoodPickupPin,
@@ -32,10 +34,6 @@ export type CallInBookingResult = {
   reservedUntil: string;
   smsSent: boolean;
 };
-
-function placeJson(place: { label: string; lat: number; lng: number }): Prisma.InputJsonValue {
-  return place as unknown as Prisma.InputJsonValue;
-}
 
 function normalizeSeatNumbers(seatNumbers: number[], capacity: number): number[] {
   const unique = [...new Set(seatNumbers)].sort((a, b) => a - b);
@@ -205,21 +203,32 @@ export async function createCallInBooking(
         }
       : neighborhoodPlace;
 
+    const placeInputs = sharedBookingPlaceInputs(
+      departure,
+      pickupPlace,
+      dropoffPlace,
+      isToSgr,
+    );
+    const places = await persistPlacePair(tx, placeInputs.pickup, placeInputs.dropoff);
+
     await tx.booking.create({
       data: {
         id: bookingId,
         passengerId: passenger.id,
         product: "shared_sgr",
         sharedDepartureId: departureId,
-        seats: seatNumbers.join(","),
+        seats: serializeBookingSeats(seatNumbers),
         subtotal,
         platformFee,
         total,
-        pickup: placeJson(pickupPlace),
-        dropoff: placeJson(dropoffPlace),
+        pickup: places.pickup,
+        dropoff: places.dropoff,
+        pickupPlaceId: places.pickupPlaceId,
+        dropoffPlaceId: places.dropoffPlaceId,
         status: "pending_payment",
       },
     });
+    await persistBookingSeats(tx, bookingId, seatNumbers, { departureId });
 
     await tx.sharedDepartureSeat.updateMany({
       where: { departureId, seatNumber: { in: seatNumbers }, reservedById: passenger.id },

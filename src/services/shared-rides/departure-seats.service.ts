@@ -132,6 +132,7 @@ async function loadDepartureForView(departureId: string, viewer: Viewer) {
           name: true,
           phone: true,
           rating: true,
+          driverLocation: true,
           driverProfile: {
             select: {
               vehicle: {
@@ -233,7 +234,9 @@ function toDepartureDto(
     dropoffLocation: departure.dropoffLocation,
     seatSummary: seatSummary(departure.seats),
     seats: mapSeats(departure.seats, viewer),
-    driverLocation: showDriverLocation ? driverLocationFromDeparture(departure) : null,
+    driverLocation: showDriverLocation
+      ? driverLocationFromDeparture(departure, departure.driver?.driverLocation ?? null)
+      : null,
     driver: driverContactForViewer(departure, viewer),
   };
 }

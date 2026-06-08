@@ -1,4 +1,5 @@
 import type { Payment, Booking, Prisma } from "@prisma/client";
+import { bookingSeatInclude, seatNumbersFromBooking } from "../lib/booking-seats.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
 import { creditDriverForSharedBooking } from "./wallet.service.js";
@@ -94,15 +95,12 @@ async function notifyDriverSharedBookingPaid(
     loadDepartureNotifyContext(departureId),
     prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { passenger: { select: { name: true } } },
+      include: { passenger: { select: { name: true } }, ...bookingSeatInclude },
     }),
   ]);
   if (!notifyCtx || !booking) return;
 
-  const seatNumbers = (booking.seats ?? "")
-    .split(",")
-    .map((value) => Number.parseInt(value.trim(), 10))
-    .filter((value) => Number.isFinite(value));
+  const seatNumbers = seatNumbersFromBooking(booking) ?? [];
 
   await notifyDriverSeatsPaid({
     driverId: notifyCtx.driverId,

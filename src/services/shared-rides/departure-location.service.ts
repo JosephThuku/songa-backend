@@ -1,3 +1,4 @@
+import { persistDriverLocation } from "../../lib/driver-location.js";
 import { AppError } from "../../lib/errors.js";
 import { prisma } from "../../lib/prisma.js";
 import { getDepartureDetailForViewer } from "./departure-seats.service.js";
@@ -36,14 +37,7 @@ export async function updateDepartureDriverLocation(
   }
 
   const now = new Date();
-  await prisma.sharedDeparture.update({
-    where: { id: departureId },
-    data: {
-      driverLat: lat,
-      driverLng: lng,
-      driverLocationUpdatedAt: now,
-    },
-  });
+  await persistDriverLocation(prisma, driverId, { lat, lng, recordedAt: now });
 
   return getDepartureDetailForViewer(departureId, { id: driverId, role: "driver" });
 }

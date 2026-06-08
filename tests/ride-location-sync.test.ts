@@ -109,8 +109,6 @@ describe("syncActiveRideFromDriverLocation — phaseFromPickupDistance", () => {
     expect(updated.phase).toBe("driver_arriving");
     // ETA should be 1 when driver is essentially at pickup
     expect(updated.etaMinutes).toBe(1);
-    // Confirm the update persisted — driverLocation stored on the ride row
-    expect(updated.driverLocation).not.toBeNull();
   });
 
   it("preserves driver_arrived when GPS updates (no regression to driver_arriving)", async () => {
@@ -154,8 +152,6 @@ describe("syncActiveRideFromDriverLocation — phaseFromPickupDistance", () => {
     const updated = await prisma.ride.findUniqueOrThrow({ where: { id: ride.id } });
     expect(updated.phase).toBe("driver_arriving");
     expect(updated.etaMinutes).toBe(1);
-    // Confirm the update persisted (driverLocation should be stored)
-    expect(updated.driverLocation).not.toBeNull();
   });
 
   it("updates ETA toward drop-off during trip_in_progress", async () => {
