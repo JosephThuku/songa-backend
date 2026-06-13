@@ -1,21 +1,20 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
-import { Redis as IORedis } from "ioredis";
 import { logger } from "./logger.js";
 import { OFFER_TTL_MS } from "./offer-timeout.js";
 
 const QUEUE_NAME = "ride-offer-timeout";
 
-let connection: IORedis | null = null;
+let connectionOptions: ConnectionOptions | null = null;
 let queue: Queue | null = null;
 let worker: Worker | null = null;
 
 function bullConnection(): ConnectionOptions {
-  if (!connection) {
+  if (!connectionOptions) {
     const url = process.env.REDIS_URL;
     if (!url) throw new Error("REDIS_URL is required for BullMQ");
-    connection = new IORedis(url, { maxRetriesPerRequest: null });
+    connectionOptions = { url, maxRetriesPerRequest: null };
   }
-  return connection;
+  return connectionOptions;
 }
 
 function getQueue(): Queue {

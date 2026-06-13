@@ -1,0 +1,72 @@
+# Songa backend stack: MySQL + Redis + API
+#
+# Usage:
+#   docker compose up --build -d
+#   curl http://localhost:4000/api/health
+#
+# Mobile app: set EXPO_PUBLIC_API_BASE_URL=http://localhost:4000
+# (Android emulator: http://10.0.2.2:4000)
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: songa_root
+      MYSQL_DATABASE: songa
+      MYSQL_USER: songa
+      MYSQL_PASSWORD: songa
+    ports:
+      - "3306:3306"
+    volumes:
+      - songa_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-psonga_root"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: mysql://songa:songa@mysql:3306/songa
+      REDIS_URL: redis://redis:6379
+      SESSION_JWT_SECRET: docker-dev-session-secret-min-16-chars
+      OTP_PEPPER: docker-dev-otp-pepper-min-8
+      PORT: "4000"
+      NODE_ENV: production
+      CORS_ALLOW_ALL: "true"
+      ALLOW_DEV_PAYMENT_CONFIRM: "true"
+      USE_DUMMY_PLACES: "true"
+      RUN_DB_SEED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+volumes:
+  songa_mysql_data:
