@@ -220,7 +220,14 @@ export function toPassengerEmbedDto(passenger: User, includePhone: boolean): Pas
 function resolveDriverLocationForDto(ride: RideDtoInput): unknown {
   const canonical = ride.driver?.driverLocation;
   if (canonical) {
-    return driverLocationToJson(canonical);
+    return driverLocationToJson({
+      lat: canonical.lat,
+      lng: canonical.lng,
+      updatedAt: canonical.updatedAt,
+      ...(canonical.heading !== null ? { heading: canonical.heading } : {}),
+      ...(canonical.speedKmh !== null ? { speedKmh: canonical.speedKmh } : {}),
+      ...(canonical.accuracyM !== null ? { accuracyM: canonical.accuracyM } : {}),
+    });
   }
 
   const onRide =
