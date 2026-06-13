@@ -135,7 +135,19 @@ async function findVerifiedUserByIdentifier(
         include: { driverProfile: { include: { vehicle: true } } },
       });
 
-  if (!user?.phoneVerified || !user.passwordHash) {
+  if (!user) {
+    logger.info(
+      { identifier, role, lookup: isEmailIdentifier(identifier) ? "email" : "phone" },
+      "Password reset: no account for identifier",
+    );
+    return null;
+  }
+  if (!user.phoneVerified) {
+    logger.info({ identifier, role, userId: user.id }, "Password reset: phone not verified — skipping SMS");
+    return null;
+  }
+  if (!user.passwordHash) {
+    logger.info({ identifier, role, userId: user.id }, "Password reset: no password set — skipping SMS");
     return null;
   }
   return user;
@@ -160,6 +172,10 @@ async function issueOtp(role: Role, phone: string, purpose: "register" | "reset"
 
 async function dispatchOtpSmsWithBody(phone: string, body: string): Promise<void> {
   const sms = getSmsProvider();
+  logger.info(
+    { phone, provider: sms.name, smsConfigured: isSmsConfigured() },
+    "OTP SMS: dispatching",
+  );
   const result = await sms
     .send({
       to: phone,
@@ -167,19 +183,28 @@ async function dispatchOtpSmsWithBody(phone: string, body: string): Promise<void
       isOtp: true,
     })
     .catch((err: unknown) => {
-      logger.error({ err, phone }, "SMS send threw");
+      logger.error({ err, phone, provider: sms.name }, "OTP SMS: send threw");
       return { ok: false, provider: sms.name, error: String(err) } as const;
     });
-  if (!result.ok) {
-    logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
-    if (isSmsConfigured()) {
-      throw new AppError(
-        "SMS_DELIVERY_FAILED",
-        503,
-        "Could not send the verification code by SMS. Check your number and try again shortly.",
-      );
-    }
+  if (result.ok) {
+    logger.info(
+      { phone, provider: result.provider, messageId: result.id, raw: result.raw },
+      "OTP SMS: provider accepted",
+    );
+    return;
   }
+  logger.warn(
+    { phone, provider: result.provider, error: result.error, smsConfigured: isSmsConfigured() },
+    "OTP SMS: delivery failed",
+  );
+  if (isSmsConfigured()) {
+    throw new AppError(
+      "SMS_DELIVERY_FAILED",
+      503,
+      "Could not send the verification code by SMS. Check your number and try again shortly.",
+    );
+  }
+  logger.warn({ phone, provider: result.provider }, "OTP SMS: continuing without SMS (console fallback)");
 }
 
 async function createSession(
@@ -469,14 +494,22 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<Forgot
   const identifier = normalizeLoginIdentifier(input.identifier);
   const role = input.role;
 
+  logger.info(
+    { identifier, role, lookup: isEmailIdentifier(identifier) ? "email" : "phone" },
+    "Password reset: request received",
+  );
+
   const user = await findVerifiedUserByIdentifier(identifier, role);
   let devCode: string | undefined;
 
   if (user) {
+    logger.info({ userId: user.id, phone: user.phone, role }, "Password reset: sending OTP SMS");
     const { code } = await issueOtp(role, user.phone, "reset");
     if (process.env.NODE_ENV !== "production") {
       devCode = code;
     }
+  } else {
+    logger.info({ identifier, role }, "Password reset: no OTP sent (account not eligible or unknown)");
   }
 
   return {

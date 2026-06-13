@@ -4,6 +4,7 @@
 // Headers: Content-Type: application/json, apiKey: <key>
 // Body: { recipients: ["2547..."], from: "<sender>", message: "...", is_otp?: true }
 
+import { logger } from "./logger.js";
 import type { SmsMessage } from "./sms.js";
 
 export interface WasilianaConfig {
@@ -44,6 +45,18 @@ export async function sendViaWasiliana(
     body.is_otp = true;
   }
 
+  const recipient = toWasilianaRecipient(msg.to);
+  logger.debug(
+    {
+      url,
+      recipient,
+      from: body.from,
+      isOtp: Boolean(msg.isOtp),
+      bodyLength: msg.body.length,
+    },
+    "Wasiliana: POST /api/v1/send/sms",
+  );
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -65,6 +78,10 @@ export async function sendViaWasiliana(
       const code = (parsed as { code?: number }).code;
       detail = [msg, code !== undefined ? `code ${code}` : null].filter(Boolean).join(" — ");
     }
+    logger.warn(
+      { recipient, from: body.from, httpStatus: response.status, detail, responseBody: parsed },
+      "Wasiliana: HTTP error",
+    );
     throw new Error(`Wasiliana returned ${response.status}: ${detail}`);
   }
 
@@ -72,8 +89,18 @@ export async function sendViaWasiliana(
     const envelope = parsed as { status?: string; data?: string; message?: string };
     if (envelope.status === "failed") {
       const detail = envelope.data ?? envelope.message ?? text;
+      logger.warn(
+        { recipient, from: body.from, status: envelope.status, detail, responseBody: parsed },
+        "Wasiliana: dispatch failed",
+      );
       throw new Error(`Wasiliana dispatch failed: ${detail}`);
     }
+    logger.info(
+      { recipient, from: body.from, status: envelope.status, responseBody: parsed },
+      "Wasiliana: dispatch accepted",
+    );
+  } else {
+    logger.info({ recipient, from: body.from, httpStatus: response.status, responseBody: parsed }, "Wasiliana: response");
   }
 
   const messageId =

@@ -21,7 +21,7 @@ export const loginRoleSchema = z
 
 const passwordSchema = z
   .string({ required_error: "password is required" })
-  .min(8, "password must be at least 8 characters");
+  .regex(/^\d{4}$/, "password must be a 4-digit PIN");
 
 export const RegisterRequestSchema = registry.register(
   "RegisterRequest",
@@ -32,7 +32,7 @@ export const RegisterRequestSchema = registry.register(
         .min(1, "phone is required")
         .openapi({ example: "+254712000001" }),
       role: roleSchema,
-      password: passwordSchema.openapi({ example: "MySecurePass1" }),
+      password: passwordSchema.openapi({ example: "1234" }),
       name: z.string().trim().min(1).max(80).optional().openapi({ example: "John Doe" }),
       email: z.string().trim().email().max(254).optional().openapi({ example: "john@example.com" }),
     })
@@ -102,7 +102,7 @@ export const ResetPasswordRequestSchema = registry.register(
         .string({ required_error: "code is required" })
         .regex(/^\d{4,6}$/, "code must be 4–6 digits")
         .openapi({ example: "123456" }),
-      password: passwordSchema.openapi({ example: "MyNewSecurePass1" }),
+      password: passwordSchema.openapi({ example: "5678" }),
     })
     .strict(),
 );

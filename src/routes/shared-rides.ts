@@ -12,6 +12,7 @@ import {
   CorridorLocationSlugParamsSchema,
   CreateSharedDepartureBookingSchema,
   CreateTripRequestSchema,
+  UpdateTripRequestSchema,
   DepartureIdParamsSchema,
   DepartureSeatNumberParamsSchema,
   DeparturesSearchQuerySchema,
@@ -54,7 +55,12 @@ import {
   resolveCorridorLocationFromGps,
   searchDepartures,
 } from "../services/shared-rides/catalog.service.js";
-import { createTripRequest, listMyTripRequests } from "../services/shared-rides/trip-request.service.js";
+import {
+  cancelTripRequest,
+  createTripRequest,
+  listMyTripRequests,
+  updateTripRequest,
+} from "../services/shared-rides/trip-request.service.js";
 import { createCallInBooking } from "../services/shared-rides/call-in-booking.service.js";
 import {
   driverMarkSeatPaidCash,
@@ -177,6 +183,29 @@ router.get(
   asyncHandler(async (req, res) => {
     const user = passengerOrThrow(req);
     const result = await listMyTripRequests(user.id);
+    res.status(200).json(result);
+  }),
+);
+
+router.patch(
+  "/trip-requests/:tripRequestId",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { tripRequestId } = TripRequestIdParamsSchema.parse(req.params);
+    const body = UpdateTripRequestSchema.parse(req.body);
+    const result = await updateTripRequest(user.id, tripRequestId, body);
+    res.status(200).json(result);
+  }),
+);
+
+router.post(
+  "/trip-requests/:tripRequestId/cancel",
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    const user = passengerOrThrow(req);
+    const { tripRequestId } = TripRequestIdParamsSchema.parse(req.params);
+    const result = await cancelTripRequest(user.id, tripRequestId);
     res.status(200).json(result);
   }),
 );

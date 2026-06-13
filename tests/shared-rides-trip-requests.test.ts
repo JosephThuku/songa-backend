@@ -65,6 +65,8 @@ describe("Shared rides trip requests (Phase 2)", () => {
     const doc = buildOpenApiDocument();
     expect(doc.paths?.["/api/shared-rides/trip-requests"]).toBeDefined();
     expect(doc.paths?.["/api/shared-rides/trip-requests/mine"]).toBeDefined();
+    expect(doc.paths?.["/api/shared-rides/trip-requests/{tripRequestId}"]?.patch).toBeDefined();
+    expect(doc.paths?.["/api/shared-rides/trip-requests/{tripRequestId}/cancel"]?.post).toBeDefined();
   });
 
   it("creates a trip request from a suggestion payload and lists mine", async () => {
@@ -148,5 +150,81 @@ describe("Shared rides trip requests (Phase 2)", () => {
       });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("CORRIDOR_MISMATCH");
+  });
+
+  it("returns 409 when passenger requests the same van departure from another corridor", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+    const token = await loginPassenger(app, "+254713200006");
+
+    const nyaliBody = await nyaliToSgrTripRequestBody();
+    const created = await request(app)
+      .post("/api/shared-rides/trip-requests")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...nyaliBody, seatsRequested: 1 });
+    expect(created.status).toBe(201);
+
+    const diani = await prisma.sgrScheduleSlot.findFirst({
+      where: {
+        direction: "to_sgr",
+        isActive: true,
+        sgrEventTime: "08:00",
+        vanDepartureTime: "06:00",
+        pickupLocation: { slug: "diani" },
+        dropoffLocation: { slug: "sgr-miritini" },
+      },
+      include: { pickupLocation: true },
+    });
+    expect(diani).not.toBeNull();
+
+    const duplicate = await request(app)
+      .post("/api/shared-rides/trip-requests")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        sgrScheduleSlotId: diani!.id,
+        direction: "to_sgr",
+        corridorLocationId: diani!.pickupLocationId,
+        departureDate: nyaliBody.departureDate,
+        vanDepartureAt: nyaliBody.vanDepartureAt,
+        seatsRequested: 1,
+      });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe("TRIP_REQUEST_DUPLICATE");
+  });
+
+  it("updates and cancels an open trip request reservation", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+    const token = await loginPassenger(app, "+254713200005");
+    const body = await nyaliToSgrTripRequestBody();
+
+    const created = await request(app)
+      .post("/api/shared-rides/trip-requests")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...body, seatsRequested: 1, pickupNote: "Gate A" });
+    expect(created.status).toBe(201);
+    const tripRequestId = created.body.tripRequest.id as string;
+
+    const updated = await request(app)
+      .patch(`/api/shared-rides/trip-requests/${tripRequestId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ seatsRequested: 2, pickupNote: "Nyali Road" });
+    expect(updated.status).toBe(200);
+    expect(updated.body.reservation.seatsRequested).toBe(2);
+    expect(updated.body.reservation.pickupNote).toBe("Nyali Road");
+    expect(updated.body.tripRequest.poolSeatsTotal).toBe(2);
+
+    const cancelled = await request(app)
+      .post(`/api/shared-rides/trip-requests/${tripRequestId}/cancel`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.reservation.status).toBe("cancelled");
+    expect(cancelled.body.tripRequest.status).toBe("cancelled");
+
+    const mine = await request(app)
+      .get("/api/shared-rides/trip-requests/mine")
+      .set("Authorization", `Bearer ${token}`);
+    expect(mine.status).toBe(200);
+    expect(mine.body.items).toHaveLength(0);
   });
 });

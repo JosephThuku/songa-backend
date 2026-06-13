@@ -357,7 +357,7 @@ async function main() {
   });
 
   if (sharedRides.driverVanDepartures?.length) {
-    console.log("\nCoast van departures (Nyali / Bamburi ↔ SGR, password SongaDev1):");
+    console.log("\nCoast van departures (Nyali / Bamburi ↔ SGR, PIN 1234):");
     for (const row of sharedRides.driverVanDepartures) {
       console.log(`  ${row.id.padEnd(32)} ${row.route.padEnd(18)} ${row.seats} seats · ${row.driver}`);
     }
@@ -367,7 +367,7 @@ async function main() {
     console.log("\nNyali morning van — paid passengers (driver map QA, seats 3–8):");
     console.log("  Departure: dep_seed_nyali_sgr_morning (Nyali → SGR, ~06:00 van)");
     console.log(`  Driver:    Faith Njoki ${"+254712345681"} (${SEED_PASSWORD})`);
-    console.log("  Passengers (password SongaDev1 for all):");
+    console.log("  Passengers (PIN 1234 for all):");
     console.log("    +254712000201  Asha Mwangi     City Mall Nyali");
     console.log("    +254712000202  Brian Otieno    Kongowea Market");
     console.log("    +254712000203  Caro Wanjiru    Nyali Beach Hotel");

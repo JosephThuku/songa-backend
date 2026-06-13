@@ -81,7 +81,7 @@ describe("place persistence (Phase 2)", () => {
 
     const loginPassenger = await request(app)
       .post("/api/auth/login")
-      .send({ identifier: passengerPhone, password: "TestPass123", role: "passenger" });
+      .send({ identifier: passengerPhone, password: "1234", role: "passenger" });
 
     const res = await request(app)
       .post("/api/rides/request")

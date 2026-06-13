@@ -22,10 +22,17 @@ export type GeneratedDepartureSeat = {
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
+function resolveGridDimensions(
+  layout: Pick<VehicleSeatLayout, "rows" | "cols">,
+  capacity: number,
+): { rows: number; cols: number } {
+  const cols = layout.cols ?? 2;
+  const rows = layout.rows ?? Math.max(1, Math.ceil((capacity + 1) / cols));
+  return { rows, cols };
+}
+
 export function defaultVehicleSeatLayout(capacity: number): VehicleSeatLayout {
-  const cols = 2;
-  /** +1 row accounts for the non-bookable driver seat (Laravel: row 0, last col). */
-  const rows = Math.max(1, Math.ceil((capacity + 1) / cols));
+  const { rows, cols } = resolveGridDimensions({}, capacity);
   return { rows, cols, disabled_seats: [] };
 }
 
@@ -35,13 +42,14 @@ export function parseVehicleSeatLayout(raw: unknown, capacity: number): VehicleS
     const row_pattern = Array.isArray(o.row_pattern)
       ? o.row_pattern.filter((n): n is number => typeof n === "number" && n > 0)
       : undefined;
-    const rows = typeof o.rows === "number" ? o.rows : defaultVehicleSeatLayout(capacity).rows;
+    const fallback = resolveGridDimensions(defaultVehicleSeatLayout(capacity), capacity);
+    const rows = typeof o.rows === "number" ? o.rows : fallback.rows;
     const cols =
       typeof o.cols === "number"
         ? o.cols
         : row_pattern
           ? Math.max(...row_pattern)
-          : 2;
+          : fallback.cols;
     const disabled_seats = Array.isArray(o.disabled_seats)
       ? o.disabled_seats.filter((s): s is string => typeof s === "string")
       : [];
@@ -95,17 +103,20 @@ function generateFromRowPattern(
     }
   }
 
-  return positions.map((pos, index) => {
-    const seatLabel = `${LETTERS[pos.row] ?? "X"}${pos.col + 1}`;
-    const blocked = disabled.has(seatLabel);
-    return {
-      seatNumber: blocked ? 0 : index + 1,
-      seatLabel,
-      row: pos.row,
-      col: pos.col,
-      status: blocked ? "disabled" : "available",
-    };
-  }).filter((s) => s.seatNumber > 0);
+  return positions
+    .map((pos, index) => {
+      const seatLabel = `${LETTERS[pos.row] ?? "X"}${pos.col + 1}`;
+      const blocked = disabled.has(seatLabel);
+      const status: GeneratedDepartureSeat["status"] = blocked ? "disabled" : "available";
+      return {
+        seatNumber: blocked ? 0 : index + 1,
+        seatLabel,
+        row: pos.row,
+        col: pos.col,
+        status,
+      };
+    })
+    .filter((s) => s.seatNumber > 0);
 }
 
 export function generateDepartureSeatsFromVehicle(input: {
@@ -120,8 +131,7 @@ export function generateDepartureSeatsFromVehicle(input: {
     return generateFromRowPattern(layout.row_pattern, capacity, disabled);
   }
 
-  const cols = layout.cols;
-  const rows = layout.rows;
+  const { rows, cols } = resolveGridDimensions(layout, capacity);
 
   const grid: GeneratedDepartureSeat[] = [];
   for (let row = 0; row < rows; row++) {

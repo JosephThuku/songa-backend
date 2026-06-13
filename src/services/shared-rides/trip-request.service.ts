@@ -220,6 +220,19 @@ export async function createTripRequest(
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    const existingPassengerReservation = await tx.sharedTripRequestReservation.findFirst({
+      where: {
+        passengerId,
+        status: "active",
+        tripRequest: {
+          requestedDepartureAt,
+          status: { in: ["open", "matched"] },
+          sgrScheduleSlot: { direction: input.direction },
+        },
+      },
+      select: { tripRequestId: true },
+    });
+
     let tripRequest = await tx.sharedTripRequest.findFirst({
       where: {
         sgrScheduleSlotId: input.sgrScheduleSlotId,
@@ -229,6 +242,17 @@ export async function createTripRequest(
       },
       include: tripRequestInclude,
     });
+
+    if (
+      existingPassengerReservation &&
+      (!tripRequest || existingPassengerReservation.tripRequestId !== tripRequest.id)
+    ) {
+      throw new AppError(
+        "TRIP_REQUEST_DUPLICATE",
+        409,
+        "You already have a request for this train time. Update your existing request instead.",
+      );
+    }
 
     if (!tripRequest) {
       tripRequest = await tx.sharedTripRequest.create({
@@ -304,6 +328,128 @@ export async function createTripRequest(
       console.warn("[shared-rides] driver pool notify failed", err);
     });
   }
+
+  return {
+    tripRequest: toTripRequestDto(result.tripRequest as SharedTripRequestWithRelations),
+    reservation: {
+      id: result.reservation.id,
+      seatsRequested: result.reservation.seatsRequested,
+      status: result.reservation.status,
+      pickupNote: result.reservation.pickupNote,
+    },
+  };
+}
+
+export type UpdateTripRequestInput = {
+  seatsRequested?: number;
+  pickupNote?: string;
+};
+
+async function loadPassengerActiveReservation(passengerId: string, tripRequestId: string) {
+  const reservation = await prisma.sharedTripRequestReservation.findFirst({
+    where: {
+      passengerId,
+      tripRequestId,
+      status: "active",
+      tripRequest: {
+        status: { in: ["open", "matched"] },
+        requestedDepartureAt: { gt: new Date() },
+      },
+    },
+    include: {
+      tripRequest: { include: tripRequestInclude },
+    },
+  });
+  if (!reservation) {
+    throw new AppError(
+      "TRIP_REQUEST_NOT_FOUND",
+      404,
+      "Trip request not found or no longer active.",
+    );
+  }
+  return reservation;
+}
+
+async function recalculatePoolTripRequest(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  tripRequestId: string,
+) {
+  const poolSeats = await tx.sharedTripRequestReservation.aggregate({
+    where: { tripRequestId, status: "active" },
+    _sum: { seatsRequested: true },
+  });
+  const poolTotal = poolSeats._sum.seatsRequested ?? 0;
+  const existing = await tx.sharedTripRequest.findUniqueOrThrow({
+    where: { id: tripRequestId },
+    select: { status: true },
+  });
+
+  return tx.sharedTripRequest.update({
+    where: { id: tripRequestId },
+    data: {
+      seatsRequested: poolTotal,
+      ...(poolTotal === 0 && existing.status === "open" ? { status: "cancelled" } : {}),
+    },
+    include: tripRequestInclude,
+  });
+}
+
+export async function updateTripRequest(
+  passengerId: string,
+  tripRequestId: string,
+  input: UpdateTripRequestInput,
+): Promise<CreateTripRequestResult> {
+  const existing = await loadPassengerActiveReservation(passengerId, tripRequestId);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const reservation = await tx.sharedTripRequestReservation.update({
+      where: { id: existing.id },
+      data: {
+        ...(input.seatsRequested != null ? { seatsRequested: input.seatsRequested } : {}),
+        ...(input.pickupNote != null ? { pickupNote: input.pickupNote } : {}),
+      },
+    });
+
+    const tripRequest = await recalculatePoolTripRequest(tx, tripRequestId);
+
+    return { tripRequest, reservation };
+  });
+
+  return {
+    tripRequest: toTripRequestDto(result.tripRequest as SharedTripRequestWithRelations),
+    reservation: {
+      id: result.reservation.id,
+      seatsRequested: result.reservation.seatsRequested,
+      status: result.reservation.status,
+      pickupNote: result.reservation.pickupNote,
+    },
+  };
+}
+
+export async function cancelTripRequest(
+  passengerId: string,
+  tripRequestId: string,
+): Promise<CreateTripRequestResult> {
+  const existing = await loadPassengerActiveReservation(passengerId, tripRequestId);
+
+  if (existing.tripRequest.status !== "open") {
+    throw new AppError(
+      "TRIP_REQUEST_NOT_CANCELLABLE",
+      409,
+      "Cannot cancel after a driver has matched your pool. Manage your booking instead.",
+    );
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const reservation = await tx.sharedTripRequestReservation.update({
+      where: { id: existing.id },
+      data: { status: "cancelled" },
+    });
+
+    const tripRequest = await recalculatePoolTripRequest(tx, tripRequestId);
+
+    return { tripRequest, reservation };
+  });
 
   return {
     tripRequest: toTripRequestDto(result.tripRequest as SharedTripRequestWithRelations),

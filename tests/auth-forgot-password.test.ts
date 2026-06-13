@@ -7,7 +7,7 @@ import { buildTestApp, createAuthSession, TEST_PASSWORD } from "./helpers.js";
 
 const PHONE = "+254712345678";
 const PHONE_2 = "+254722333444";
-const NEW_PASSWORD = "NewSecure99";
+const NEW_PASSWORD = "5678";
 const EMAIL = "forgot-reset@example.com";
 
 class RecordingSmsProvider implements SmsProvider {
@@ -223,7 +223,7 @@ describe("POST /api/auth/password/reset", () => {
         identifier: PHONE,
         role: "passenger",
         code,
-        password: "AnotherPass99",
+        password: "9012",
       });
     expect(second.status).toBe(401);
     expect(second.body.error.code).toBe("INVALID_OTP");
