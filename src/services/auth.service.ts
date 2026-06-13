@@ -22,7 +22,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { prisma } from "../lib/prisma.js";
 import { getRedis } from "../lib/redis.js";
 import { toUserDto, type UserDto } from "../lib/responses.js";
-import { getSmsProvider } from "../lib/sms.js";
+import { getSmsProvider, isSmsConfigured } from "../lib/sms.js";
 
 export type { Role };
 
@@ -72,6 +72,32 @@ export interface MeResult {
   user: UserDto;
 }
 
+export interface ForgotPasswordInput {
+  identifier: string;
+  role: Role;
+}
+
+export interface ForgotPasswordResult {
+  ok: true;
+  expiresInSeconds: number;
+  devCode?: string;
+}
+
+export interface ResetPasswordInput {
+  identifier: string;
+  role: Role;
+  code: string;
+  password: string;
+  userAgent?: string | null;
+  ip?: string | null;
+}
+
+export interface ResetPasswordResult {
+  ok: true;
+  sessionToken: string;
+  user: UserDto;
+}
+
 function toPrismaRole(role: Role): UserRole {
   if (role === "passenger") return UserRole.passenger;
   if (role === "driver") return UserRole.driver;
@@ -89,33 +115,96 @@ function assertPublicRegisterRole(role: Role): void {
 }
 
 async function dispatchOtpSms(phone: string, code: string): Promise<void> {
+  await dispatchOtpSmsWithBody(
+    phone,
+    `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`,
+  );
+}
+
+async function findVerifiedUserByIdentifier(
+  identifier: string,
+  role: Role,
+): Promise<(User & { driverProfile: (DriverProfile & { vehicle: Vehicle | null }) | null }) | null> {
+  const user = isEmailIdentifier(identifier)
+    ? await prisma.user.findFirst({
+        where: { email: identifier, role: toPrismaRole(role) },
+        include: { driverProfile: { include: { vehicle: true } } },
+      })
+    : await prisma.user.findUnique({
+        where: { phone_role: { phone: identifier, role: toPrismaRole(role) } },
+        include: { driverProfile: { include: { vehicle: true } } },
+      });
+
+  if (!user) {
+    logger.info(
+      { identifier, role, lookup: isEmailIdentifier(identifier) ? "email" : "phone" },
+      "Password reset: no account for identifier",
+    );
+    return null;
+  }
+  if (!user.phoneVerified) {
+    logger.info({ identifier, role, userId: user.id }, "Password reset: phone not verified — skipping SMS");
+    return null;
+  }
+  if (!user.passwordHash) {
+    logger.info({ identifier, role, userId: user.id }, "Password reset: no password set — skipping SMS");
+    return null;
+  }
+  return user;
+}
+
+async function issueOtp(role: Role, phone: string, purpose: "register" | "reset" = "register"): Promise<{ code: string }> {
+  const code = generateOtpCode();
+  const redis = getRedis();
+  await storeOtp(redis, purpose, role, phone, code);
+
+  if (process.env.NODE_ENV !== "production") {
+    logger.info({ phone, role, code, purpose }, "Dev OTP issued");
+  }
+
+  const smsBody =
+    purpose === "reset"
+      ? `Your Songa password reset code is ${code}. It expires in 5 minutes. Do not share it.`
+      : `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`;
+  await dispatchOtpSmsWithBody(phone, smsBody);
+  return { code };
+}
+
+async function dispatchOtpSmsWithBody(phone: string, body: string): Promise<void> {
   const sms = getSmsProvider();
+  logger.info(
+    { phone, provider: sms.name, smsConfigured: isSmsConfigured() },
+    "OTP SMS: dispatching",
+  );
   const result = await sms
     .send({
       to: phone,
-      body: `Your Songa code is ${code}. It expires in 5 minutes. Do not share it.`,
+      body,
       isOtp: true,
     })
     .catch((err: unknown) => {
-      logger.error({ err, phone }, "SMS send threw");
+      logger.error({ err, phone, provider: sms.name }, "OTP SMS: send threw");
       return { ok: false, provider: sms.name, error: String(err) } as const;
     });
-  if (!result.ok) {
-    logger.warn({ phone, provider: result.provider, error: result.error }, "OTP SMS delivery failed");
+  if (result.ok) {
+    logger.info(
+      { phone, provider: result.provider, messageId: result.id, raw: result.raw },
+      "OTP SMS: provider accepted",
+    );
+    return;
   }
-}
-
-async function issueOtp(role: Role, phone: string): Promise<{ code: string }> {
-  const code = generateOtpCode();
-  const redis = getRedis();
-  await storeOtp(redis, "register", role, phone, code);
-
-  if (process.env.NODE_ENV !== "production") {
-    logger.info({ phone, role, code }, "Dev OTP issued (register)");
+  logger.warn(
+    { phone, provider: result.provider, error: result.error, smsConfigured: isSmsConfigured() },
+    "OTP SMS: delivery failed",
+  );
+  if (isSmsConfigured()) {
+    throw new AppError(
+      "SMS_DELIVERY_FAILED",
+      503,
+      "Could not send the verification code by SMS. Check your number and try again shortly.",
+    );
   }
-
-  await dispatchOtpSms(phone, code);
-  return { code };
+  logger.warn({ phone, provider: result.provider }, "OTP SMS: continuing without SMS (console fallback)");
 }
 
 async function createSession(
@@ -394,6 +483,108 @@ export async function getMe(userId: string): Promise<MeResult> {
     throw new AppError("UNAUTHORIZED", 401, "User not found.");
   }
   return { user: toUserDto(user, user.driverProfile) };
+}
+
+/**
+ * Start password reset: send OTP to the account phone if a verified user exists.
+ * Always returns ok to avoid leaking whether the identifier is registered.
+ */
+export async function forgotPassword(input: ForgotPasswordInput): Promise<ForgotPasswordResult> {
+  assertPublicRegisterRole(input.role);
+  const identifier = normalizeLoginIdentifier(input.identifier);
+  const role = input.role;
+
+  logger.info(
+    { identifier, role, lookup: isEmailIdentifier(identifier) ? "email" : "phone" },
+    "Password reset: request received",
+  );
+
+  const user = await findVerifiedUserByIdentifier(identifier, role);
+  let devCode: string | undefined;
+
+  if (user) {
+    logger.info({ userId: user.id, phone: user.phone, role }, "Password reset: sending OTP SMS");
+    const { code } = await issueOtp(role, user.phone, "reset");
+    if (process.env.NODE_ENV !== "production") {
+      devCode = code;
+    }
+  } else {
+    logger.info({ identifier, role }, "Password reset: no OTP sent (account not eligible or unknown)");
+  }
+
+  return {
+    ok: true,
+    expiresInSeconds: OTP_TTL_SECONDS,
+    devCode,
+  };
+}
+
+/**
+ * Confirm password-reset OTP, set a new password, revoke old sessions, and sign in.
+ */
+export async function resetPassword(input: ResetPasswordInput): Promise<ResetPasswordResult> {
+  assertPublicRegisterRole(input.role);
+  const identifier = normalizeLoginIdentifier(input.identifier);
+  const role = input.role;
+  validatePasswordStrength(input.password);
+
+  const user = await findVerifiedUserByIdentifier(identifier, role);
+  if (!user) {
+    throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
+  }
+
+  const redis = getRedis();
+  const ok = await consumeOtp(redis, "reset", role, user.phone, input.code);
+  if (!ok) {
+    await prisma.otpAttempt
+      .create({ data: { phone: user.phone, ip: input.ip ?? null, success: false } })
+      .catch(() => {});
+    throw new AppError("INVALID_OTP", 401, "OTP is invalid or expired.");
+  }
+
+  const passwordHash = await hashPassword(input.password);
+
+  let driverProfile = user.driverProfile;
+  let sessionToken = "";
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+
+    await tx.session.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    if (role === "driver" && !driverProfile) {
+      driverProfile = await ensureDriverProfileTx(tx, user.id);
+    }
+
+    const withProfile =
+      role === "driver"
+        ? { ...user, driverProfile: driverProfile! }
+        : { ...user, driverProfile: null as DriverProfile | null };
+
+    sessionToken = await createSession(
+      tx,
+      withProfile,
+      role,
+      input.userAgent,
+      input.ip,
+    );
+  });
+
+  await prisma.otpAttempt
+    .create({ data: { phone: user.phone, ip: input.ip ?? null, success: true } })
+    .catch(() => {});
+
+  return {
+    ok: true,
+    sessionToken,
+    user: toUserDto(user, driverProfile),
+  };
 }
 
 const BROWSER_UA_RE = /Mozilla\/|Chrome\/|Safari\/|Firefox\/|Edge\//;

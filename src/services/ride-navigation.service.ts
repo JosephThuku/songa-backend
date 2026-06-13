@@ -2,6 +2,7 @@ import { RidePhase } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import type { LatLng } from "../lib/geo.js";
 import { getDrivingRoute, type RoutePlan } from "../lib/routing.js";
+import { parseLatLngFromJson, resolveDriverLocationRecord } from "../lib/driver-location.js";
 import { prisma } from "../lib/prisma.js";
 
 async function resolveDriverPoint(
@@ -12,11 +13,14 @@ async function resolveDriverPoint(
   if (onRide) return onRide;
   if (!driverId) return null;
 
+  const canonical = await resolveDriverLocationRecord(driverId);
+  if (canonical) return { lat: canonical.lat, lng: canonical.lng };
+
   const profile = await prisma.driverProfile.findUnique({
     where: { userId: driverId },
     select: { location: true },
   });
-  return parseLatLng(profile?.location);
+  return parseLatLngFromJson(profile?.location);
 }
 
 export type NavigationTarget = "pickup" | "dropoff";

@@ -1,6 +1,6 @@
 /** Shared dev credentials and sample route (import-safe; no side effects). */
 
-export const SEED_PASSWORD = "SongaDev1";
+export const SEED_PASSWORD = "1234";
 
 export const SAMPLE_PICKUP = {
   label: "JKIA Terminal 1A",

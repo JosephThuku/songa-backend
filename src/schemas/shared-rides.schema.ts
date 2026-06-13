@@ -134,6 +134,19 @@ export const CreateTripRequestSchema = registry.register(
     .strict(),
 );
 
+export const UpdateTripRequestSchema = registry.register(
+  "UpdateTripRequest",
+  z
+    .object({
+      seatsRequested: z.number().int().min(1).max(6).optional(),
+      pickupNote: z.string().max(200).optional(),
+    })
+    .strict()
+    .refine((body) => body.seatsRequested != null || body.pickupNote != null, {
+      message: "Provide seatsRequested and/or pickupNote.",
+    }),
+);
+
 const SgrScheduleSlotDtoSchema = z.object({
   id: z.string(),
   direction: SharedRideDirectionSchema,
@@ -817,6 +830,61 @@ registry.registerPath({
     200: {
       description: "Passenger trip requests.",
       content: { "application/json": { schema: MyTripRequestsResponseSchema } },
+    },
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/shared-rides/trip-requests/{tripRequestId}",
+  tags: ["Shared rides"],
+  summary: "Update my trip request reservation",
+  description: "Change seat count or pickup note on an active open or matched pool reservation.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: TripRequestIdParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: UpdateTripRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Reservation updated.",
+      content: { "application/json": { schema: CreateTripRequestResponseSchema } },
+    },
+    404: {
+      description: "Trip request not found (`TRIP_REQUEST_NOT_FOUND`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    ...invalidInputResponse,
+    ...authResponses,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/shared-rides/trip-requests/{tripRequestId}/cancel",
+  tags: ["Shared rides"],
+  summary: "Cancel my trip request reservation",
+  description:
+    "Cancels the passenger reservation while the pool is still open (before a driver claims it). " +
+    "When no active reservations remain, the pooled trip request is closed.",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { params: TripRequestIdParamsSchema },
+  responses: {
+    200: {
+      description: "Reservation cancelled.",
+      content: { "application/json": { schema: CreateTripRequestResponseSchema } },
+    },
+    404: {
+      description: "Trip request not found (`TRIP_REQUEST_NOT_FOUND`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
+    },
+    409: {
+      description: "Pool already matched (`TRIP_REQUEST_NOT_CANCELLABLE`).",
+      content: { "application/json": { schema: ErrorEnvelopeSchema } },
     },
     ...authResponses,
   },

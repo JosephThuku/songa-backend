@@ -4,7 +4,8 @@ import { driverLocationFreshSince } from "../lib/driver-location-freshness.js";
 import { AppError } from "../lib/errors.js";
 import { requirePaidBooking } from "./booking.service.js";
 import { getBookingMode } from "../lib/ride-booking-mode.js";
-import { appendDeclinedBy, hasDeclined } from "../lib/ride-decline.js";
+import { hasDriverDeclinedRide, recordRideDriverDecline } from "../lib/ride-driver-decline.js";
+import { persistRideSeats, rideSeatInclude, seatNumbersFromRide, serializeRideSeats } from "../lib/ride-seats.js";
 import {
   canDriverEndTrip,
   canDriverMarkArrived,
@@ -17,6 +18,7 @@ import { haversineDistanceKm, estimatePickupEtaMinutes } from "../lib/geo.js";
 import { publishRideChanged, publishRideOffer } from "../lib/ride-events.js";
 import { computeFare } from "../lib/ride-pricing.js";
 import { getRideProduct } from "../lib/ride-products.js";
+import { persistPlacePair } from "../lib/place-persist.js";
 import { toRideDto, type PlaceDto, type RideDto } from "../lib/responses.js";
 import { withDispatchLock } from "../lib/dispatch-lock.js";
 import { cancelOfferTimeout, scheduleOfferTimeout } from "../lib/offer-timeout.js";
@@ -24,7 +26,14 @@ import { createNotification } from "./notification.service.js";
 
 const rideInclude = {
   passenger: true,
-  driver: { include: { driverProfile: { include: { vehicle: true } } } },
+  driver: {
+    include: {
+      driverProfile: { include: { vehicle: true } },
+      driverLocation: true,
+    },
+  },
+  driverDeclines: { select: { driverId: true } },
+  ...rideSeatInclude,
 } as const;
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } as const;
 
@@ -63,10 +72,6 @@ function activePhaseFilter() {
   return { notIn: [RidePhase.trip_ended, RidePhase.cancelled] };
 }
 
-function serializeSeats(seats: number[] | undefined): string | null {
-  return seats && seats.length > 0 ? seats.join(",") : null;
-}
-
 function resolveProduct(input: RequestRideInput) {
   const optionId = input.optionId ?? "car";
   const product = getRideProduct(optionId);
@@ -74,15 +79,6 @@ function resolveProduct(input: RequestRideInput) {
     throw new AppError("INVALID_INPUT", 400, "Unknown ride option.");
   }
   return product;
-}
-
-function placeJson(place: PlaceDto): Prisma.InputJsonObject {
-  return {
-    ...(place.placeId ? { placeId: place.placeId } : {}),
-    label: place.label,
-    lat: place.lat,
-    lng: place.lng,
-  };
 }
 
 function validateCancelReason(reasonId: string, reasonLabel: string, detail?: string | null) {
@@ -183,6 +179,7 @@ export async function requestRide(input: RequestRideInput, viewer: Express.UserC
     });
     if (active) throw new AppError("RIDE_ALREADY_ACTIVE", 409, "Passenger already has an active ride.");
 
+    const places = await persistPlacePair(tx, input.pickup, input.dropoff);
     const created = await tx.ride.create({
       data: {
         id: `ride_${cuid()}`,
@@ -196,11 +193,14 @@ export async function requestRide(input: RequestRideInput, viewer: Express.UserC
         price,
         distanceKm: fare.distanceKm,
         etaMinutes: fare.durationMinutes,
-        seats: serializeSeats(input.seats),
-        pickup: placeJson(input.pickup),
-        dropoff: placeJson(input.dropoff),
+        seats: serializeRideSeats(input.seats ?? []),
+        pickup: places.pickup,
+        dropoff: places.dropoff,
+        pickupPlaceId: places.pickupPlaceId,
+        dropoffPlaceId: places.dropoffPlaceId,
       },
     });
+    await persistRideSeats(tx, created.id, input.seats);
     await tx.rideEvent.create({
       data: {
         rideId: created.id,
@@ -252,7 +252,7 @@ async function dispatchRideOffers(
 
   const candidates = [];
   for (const profile of profiles) {
-    if (hasDeclined(ride.declinedBy, profile.userId)) continue;
+    if (hasDriverDeclinedRide(ride, profile.userId)) continue;
     const active = await prisma.ride.findFirst({
       where: { driverId: profile.userId, phase: activePhaseFilter() },
       select: { id: true },
@@ -372,7 +372,7 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
     }
     const ride = await tx.ride.findUnique({ where: { id: rideId }, include: rideInclude });
     if (!ride) throw new AppError("RIDE_NOT_FOUND", 404, "Ride not found.");
-    if (hasDeclined(ride.declinedBy, driverId)) {
+    if (hasDriverDeclinedRide(ride, driverId)) {
       throw new AppError("OFFER_DECLINED", 409, "Driver already declined this offer.");
     }
     if (ride.phase !== RidePhase.finding_driver || ride.driverId) {
@@ -381,9 +381,7 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
     if (ride.vehicleType && profile.vehicle.type !== ride.vehicleType) {
       throw new AppError("INVALID_VEHICLE_TYPE", 409, "Driver vehicle does not match this ride option.");
     }
-    const seatNumbers = ride.seats
-      ? ride.seats.split(",").map((s) => Number.parseInt(s, 10)).filter((n) => !Number.isNaN(n))
-      : [];
+    const seatNumbers = seatNumbersFromRide(ride) ?? [];
     if (seatNumbers.length > 0 && seatNumbers.length > profile.vehicle.seats) {
       throw new AppError("SEATS_EXCEED_CAPACITY", 409, "Requested seats exceed vehicle capacity.");
     }
@@ -398,11 +396,6 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
       driverPoint && pickupPoint ? haversineDistanceKm(pickupPoint, driverPoint) : null;
     const pickupEta = pickupDistanceKm !== null ? estimatePickupEtaMinutes(pickupDistanceKm) : 8;
 
-    const initialDriverLocation =
-      profile.location && typeof profile.location === "object"
-        ? (profile.location as object)
-        : undefined;
-
     const write = await tx.ride.updateMany({
       where: { id: ride.id, phase: RidePhase.finding_driver, driverId: null },
       data: {
@@ -410,7 +403,6 @@ export async function acceptRide(rideId: string, driverId: string, viewer: Expre
         phase: RidePhase.driver_en_route,
         etaMinutes: pickupEta,
         ...(pickupDistanceKm !== null ? { distanceKm: Math.round(pickupDistanceKm * 10) / 10 } : {}),
-        ...(initialDriverLocation ? { driverLocation: initialDriverLocation } : {}),
       },
     });
     if (write.count !== 1) throw new AppError("OFFER_EXPIRED", 409, "Ride offer is no longer available.");
@@ -450,10 +442,7 @@ export async function declineRide(rideId: string, driverId: string): Promise<{ o
     if (ride.phase !== RidePhase.finding_driver || ride.driverId) {
       throw new AppError("OFFER_EXPIRED", 409, "Ride offer is no longer available.");
     }
-    await tx.ride.update({
-      where: { id: ride.id },
-      data: { declinedBy: appendDeclinedBy(ride.declinedBy, driverId) },
-    });
+    await recordRideDriverDecline(tx, ride.id, driverId);
     await tx.rideEvent.create({
       data: {
         rideId: ride.id,

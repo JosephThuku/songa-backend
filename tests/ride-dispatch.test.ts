@@ -194,9 +194,10 @@ describe("Ride dispatch — vehicle type and declined-by filtering", () => {
     expect(decline.status).toBe(200);
     expect(decline.body).toEqual({ ok: true });
 
-    // Verify declinedBy is recorded in DB.
-    const ride = await prisma.ride.findUniqueOrThrow({ where: { id: rideId } });
-    expect(ride.declinedBy).toContain(driver1.userId);
+    const declineRow = await prisma.rideDriverDecline.findUnique({
+      where: { rideId_driverId: { rideId, driverId: driver1.userId } },
+    });
+    expect(declineRow).not.toBeNull();
 
     // driver1 tries to accept → OFFER_DECLINED.
     const declinedAccept = await request(app)

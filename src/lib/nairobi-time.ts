@@ -80,3 +80,18 @@ export function toNairobiIso(at: Date): string {
   const p = getNairobiParts(at);
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}:00${NAIROBI_ISO_OFFSET}`;
 }
+
+/** Human label for SMS / push copy, e.g. `Sat, 6 Jun, 12:00`. */
+export function formatNairobiDepartureLabel(at: Date | string): string {
+  const date = typeof at === "string" ? new Date(at) : at;
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-KE", {
+    timeZone: NAIROBI_TIMEZONE,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}

@@ -7,6 +7,7 @@ import {
   type NairobiParts,
 } from "../../lib/nairobi-time.js";
 import { prisma } from "../../lib/prisma.js";
+import { tripRequestSlotWhereForZone } from "../../lib/trip-request-derived.js";
 import { listScheduleSlots } from "./catalog.service.js";
 import type { SgrScheduleSlotWithLocations } from "./shared-rides-prisma.js";
 import {
@@ -240,8 +241,7 @@ export async function findReturnSuggestion(params: {
     where: {
       status: "open",
       matchedDepartureId: null,
-      direction: returnDirection,
-      corridorLocationId: zone.id,
+      ...tripRequestSlotWhereForZone(returnDirection, zone.id),
       requestedDepartureAt: { gte: start, lt: end },
       seatsRequested: { gt: 0 },
       reservations: { some: { status: "active" } },

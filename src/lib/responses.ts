@@ -1,6 +1,8 @@
 // NEW — shape helpers: toUserDto / toMeDto matching backend-requirements.md §2.3 / §2.4.
 
-import type { DriverProfile, Ride, User, Vehicle } from "@prisma/client";
+import type { DriverLocation, DriverProfile, Ride, User, Vehicle } from "@prisma/client";
+import { driverLocationToJson } from "./driver-location.js";
+import { seatNumbersFromRide } from "./ride-seats.js";
 
 export interface DriverProfileDto {
   isOnline: boolean;
@@ -148,7 +150,13 @@ export interface RideDto {
 
 export interface RideDtoInput extends Ride {
   passenger: User;
-  driver?: (User & { driverProfile?: (DriverProfile & { vehicle?: Vehicle | null }) | null }) | null;
+  driver?:
+    | (User & {
+        driverProfile?: (DriverProfile & { vehicle?: Vehicle | null }) | null;
+        driverLocation?: DriverLocation | null;
+      })
+    | null;
+  seatRows?: { seatNumber: number }[];
 }
 
 export function toPlaceDto(value: unknown): PlaceDto {
@@ -159,15 +167,6 @@ export function toPlaceDto(value: unknown): PlaceDto {
     lat: typeof object.lat === "number" ? object.lat : 0,
     lng: typeof object.lng === "number" ? object.lng : 0,
   };
-}
-
-function seatsToArray(value: string | null): number[] | null {
-  if (!value) return null;
-  const seats = value
-    .split(",")
-    .map((seat) => Number.parseInt(seat, 10))
-    .filter((seat) => Number.isInteger(seat));
-  return seats.length > 0 ? seats : null;
 }
 
 export function toVehicleEmbedDto(vehicle: Vehicle | null | undefined): VehicleEmbedDto | null {
@@ -219,6 +218,11 @@ export function toPassengerEmbedDto(passenger: User, includePhone: boolean): Pas
 }
 
 function resolveDriverLocationForDto(ride: RideDtoInput): unknown {
+  const canonical = ride.driver?.driverLocation;
+  if (canonical) {
+    return driverLocationToJson(canonical);
+  }
+
   const onRide =
     typeof ride.driverLocation === "object" && ride.driverLocation !== null
       ? (ride.driverLocation as Record<string, unknown>)
@@ -272,7 +276,7 @@ export function toRideDto(
     distanceKm: ride.distanceKm ?? null,
     driverProgress: ride.driverProgress,
     passengerBoarded: ride.passengerBoarded,
-    seats: seatsToArray(ride.seats),
+    seats: seatNumbersFromRide(ride),
     pickup: toPlaceDto(ride.pickup),
     dropoff: toPlaceDto(ride.dropoff),
     driverLocation: resolveDriverLocationForDto(ride),

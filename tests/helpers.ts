@@ -8,7 +8,7 @@ import { _resetEnvCache, loadEnv } from "../src/config/env.js";
 import { hashPassword } from "../src/lib/password.js";
 import { prisma } from "../src/lib/prisma.js";
 
-export const TEST_PASSWORD = "TestPass123";
+export const TEST_PASSWORD = "1234";
 
 export function buildTestApp(): Express {
   _resetEnvCache();

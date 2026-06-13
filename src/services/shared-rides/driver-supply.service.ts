@@ -1,11 +1,11 @@
 import cuid from "cuid";
 import { AppError } from "../../lib/errors.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
+import { tripRequestSlotWhereForBoard } from "../../lib/trip-request-derived.js";
 import { prisma } from "../../lib/prisma.js";
 import { notifyPassengersTripRequestMatched } from "./shared-rides-notify.js";
 import { buildDepartureSeatRows } from "./departure-seat-generation.js";
 import {
-  corridorLocationBriefSelect,
   sgrSlotWithLocationsInclude,
   type SgrScheduleSlotWithLocations,
 } from "./shared-rides-prisma.js";
@@ -15,7 +15,6 @@ import { assertVehicleEligibleForSharedDeparture } from "./shared-vehicle-eligib
 import { toTripRequestDto, type TripRequestDto } from "./trip-request.service.js";
 
 const tripRequestInclude = {
-  corridorLocation: { select: corridorLocationBriefSelect },
   sgrScheduleSlot: { include: sgrSlotWithLocationsInclude },
   reservations: {
     where: { status: "active" as const },
@@ -120,8 +119,10 @@ export async function listDriverTripRequests(filters: {
       matchedDepartureId: null,
       requestedDepartureAt: { gt: new Date() },
       seatsRequested: { gt: 0 },
-      ...(filters.direction ? { direction: filters.direction } : {}),
-      ...(corridor ? { corridorLocationId: corridor.id } : {}),
+      ...tripRequestSlotWhereForBoard({
+        direction: filters.direction,
+        corridorId: corridor?.id,
+      }),
       reservations: { some: { status: "active" } },
     },
     include: tripRequestInclude,
@@ -227,7 +228,7 @@ export async function joinTripRequest(
 
   const slot = result.tripRequest.sgrScheduleSlot as SgrScheduleSlotWithLocations;
   const destinationName =
-    result.tripRequest.direction === "to_sgr"
+    slot.direction === "to_sgr"
       ? slot.dropoffLocation.name
       : slot.pickupLocation.name;
 

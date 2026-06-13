@@ -94,6 +94,8 @@ model User {
   driverSharedDepartures        SharedDeparture[]              @relation("DriverSharedDepartures")
   reservedDepartureSeats        SharedDepartureSeat[]          @relation("ReservedDepartureSeats")
   sharedTripRequestReservations SharedTripRequestReservation[] @relation("PassengerTripRequestReservations")
+  rideDriverDeclines            RideDriverDecline[]            @relation("RideDriverDeclines")
+  driverLocation                DriverLocation?
 
   @@unique([phone, role]) // one human can be both passenger AND driver on same #
   @@unique([email, role]) // null emails allowed; uniqueness only enforced when set
@@ -156,6 +158,11 @@ model Ride {
   seats            String?
   pickup           Json
   dropoff          Json
+  pickupPlaceId    String?
+  pickupPlace      Place?          @relation("RidePickupPlace", fields: [pickupPlaceId], references: [id], onDelete: SetNull)
+  dropoffPlaceId   String?
+  dropoffPlace     Place?          @relation("RideDropoffPlace", fields: [dropoffPlaceId], references: [id], onDelete: SetNull)
+  /// Legacy snapshot; live GPS is on DriverLocation (read via driver join).
   driverLocation   Json?
   cancelReason            Json?
   cancelledByRole         RideEventActor?
@@ -163,11 +170,57 @@ model Ride {
   createdAt               DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   events           RideEvent[]
-  declinedBy       String          @default("[]") @db.VarChar(4096)
+  driverDeclines   RideDriverDecline[]
+  seatRows         RideSeat[]
+  booking          Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  walletTransactions WalletTransaction[]
 
   @@index([passengerId, phase])
+  @@index([bookingId])
+  @@index([pickupPlaceId])
+  @@index([dropoffPlaceId])
   @@index([driverId, phase])
   @@index([phase, createdAt])
+}
+
+/// Driver declined a dispatch offer for this ride (replaces declinedBy JSON string).
+model RideDriverDecline {
+  id         String   @id @default(cuid())
+  rideId     String
+  ride       Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  driverId   String
+  driver     User     @relation("RideDriverDeclines", fields: [driverId], references: [id], onDelete: Cascade)
+  declinedAt DateTime @default(now())
+
+  @@unique([rideId, driverId])
+  @@index([rideId])
+  @@index([driverId])
+}
+
+/// Canonical live driver GPS (single writer via persistDriverLocation).
+model DriverLocation {
+  driverId  String   @id
+  driver    User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  lat       Float
+  lng       Float
+  heading   Float?
+  speedKmh  Float?
+  accuracyM Float?
+  updatedAt DateTime
+
+  @@index([updatedAt])
+}
+
+/// On-demand ride seat selection (dual-write with Ride.seats string during cutover).
+model RideSeat {
+  id         String   @id @default(cuid())
+  rideId     String
+  ride       Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  seatNumber Int
+  createdAt  DateTime @default(now())
+
+  @@unique([rideId, seatNumber])
+  @@index([rideId])
 }
 
 model RideEvent {
@@ -201,12 +254,36 @@ model Booking {
   currency          String         @default("KES")
   pickup            Json
   dropoff           Json
+  pickupPlaceId     String?
+  pickupPlace       Place?         @relation("BookingPickupPlace", fields: [pickupPlaceId], references: [id], onDelete: SetNull)
+  dropoffPlaceId    String?
+  dropoffPlace      Place?         @relation("BookingDropoffPlace", fields: [dropoffPlaceId], references: [id], onDelete: SetNull)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   payments          Payment[]
+  rides             Ride[]
+  departureSeats    SharedDepartureSeat[]
+  seatRows          BookingSeat[]
 
   @@index([passengerId, status])
   @@index([sharedDepartureId])
+  @@index([pickupPlaceId])
+  @@index([dropoffPlaceId])
+}
+
+/// One row per seat sold on a booking (replaces comma-separated Booking.seats over time).
+model BookingSeat {
+  id                    String               @id @default(cuid())
+  bookingId             String
+  booking               Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seatNumber            Int
+  sharedDepartureSeatId String?
+  sharedDepartureSeat   SharedDepartureSeat? @relation(fields: [sharedDepartureSeatId], references: [id], onDelete: SetNull)
+  createdAt             DateTime             @default(now())
+
+  @@unique([bookingId, seatNumber])
+  @@index([bookingId])
+  @@index([sharedDepartureSeatId])
 }
 
 model Payment {
@@ -231,6 +308,7 @@ model WalletTransaction {
   driverId  String
   driver    User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
   rideId    String?
+  ride      Ride?    @relation(fields: [rideId], references: [id], onDelete: SetNull)
   type      String
   label     String
   amount    Int
@@ -294,6 +372,26 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// Normalized geographic point; Ride/Booking rows reference immutable snapshots at create time.
+model Place {
+  id                 String            @id @default(cuid())
+  label              String
+  lat                Float
+  lng                Float
+  /// External map provider id (DTO `placeId`).
+  externalPlaceId    String?
+  corridorLocationId String?
+  corridorLocation   CorridorLocation? @relation(fields: [corridorLocationId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+
+  ridePickups        Ride[]            @relation("RidePickupPlace")
+  rideDropoffs       Ride[]            @relation("RideDropoffPlace")
+  bookingPickups     Booking[]         @relation("BookingPickupPlace")
+  bookingDropoffs    Booking[]         @relation("BookingDropoffPlace")
+
+  @@index([corridorLocationId])
 }
 
 model SavedPlace {
@@ -364,7 +462,7 @@ model CorridorLocation {
   dropoffSlots  SgrScheduleSlot[] @relation("SlotDropoff")
   departuresFrom SharedDeparture[] @relation("DeparturePickup")
   departuresTo   SharedDeparture[] @relation("DepartureDropoff")
-  tripRequests   SharedTripRequest[]
+  places         Place[]
 
   @@index([isActive, sortOrder])
 }
@@ -411,13 +509,8 @@ model SharedTripRequest {
   id                   String                  @id @default(cuid())
   sgrScheduleSlotId    String
   sgrScheduleSlot      SgrScheduleSlot         @relation(fields: [sgrScheduleSlotId], references: [id], onDelete: Cascade)
-  corridorLocationId   String
-  corridorLocation     CorridorLocation        @relation(fields: [corridorLocationId], references: [id])
-  direction            SharedRideDirection
-  /// Van departure instant (UTC).
+  /// Van departure instant (UTC). Direction, corridor zone, and Nairobi calendar day are derived from slot + this instant.
   requestedDepartureAt DateTime
-  /// Nairobi calendar day (YYYY-MM-DD) for display and queries.
-  departureDate        String                  @db.VarChar(10)
   seatsRequested       Int                     @default(0)
   status               SharedTripRequestStatus @default(open)
   matchedDepartureId   String?
@@ -429,7 +522,6 @@ model SharedTripRequest {
   reservations SharedTripRequestReservation[]
 
   @@index([sgrScheduleSlotId, requestedDepartureAt, status])
-  @@index([corridorLocationId, direction, status])
 }
 
 /// One passenger's seat count on a pooled trip request (Laravel TripRequestReservation).
@@ -505,6 +597,8 @@ model SharedDepartureSeat {
   reservedAt   DateTime?
   expiresAt    DateTime?
   bookingId    String?
+  booking      Booking?                  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingSeatRows BookingSeat[]
   /// Neighborhood pickup pin for this passenger (label + coordinates).
   pickupLabel  String?                   @db.VarChar(200)
   pickupLat    Float?
@@ -514,4 +608,5 @@ model SharedDepartureSeat {
 
   @@unique([departureId, seatNumber])
   @@index([departureId, status])
+  @@index([bookingId])
 }

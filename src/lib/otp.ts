@@ -23,7 +23,7 @@ export function hashOtp(code: string): string {
   return createHash("sha256").update(code + pepper()).digest("hex");
 }
 
-export type OtpPurpose = "register" | "legacy";
+export type OtpPurpose = "register" | "reset" | "legacy";
 
 export function otpKey(purpose: OtpPurpose, role: string, phone: string): string {
   return `otp:${purpose}:${role}:${phone}`;

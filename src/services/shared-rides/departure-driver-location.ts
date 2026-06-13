@@ -1,3 +1,4 @@
+import { driverLocationDtoFromRecord, type DriverLocationRecord } from "../../lib/driver-location.js";
 import { toNairobiIso } from "../../lib/nairobi-time.js";
 
 export type DriverLocationDto = {
@@ -6,7 +7,7 @@ export type DriverLocationDto = {
   updatedAt: string;
 };
 
-export function driverLocationFromDeparture(departure: {
+function driverLocationFromDepartureColumns(departure: {
   driverLat: number | null;
   driverLng: number | null;
   driverLocationUpdatedAt: Date | null;
@@ -19,4 +20,18 @@ export function driverLocationFromDeparture(departure: {
     lng: departure.driverLng,
     updatedAt: toNairobiIso(departure.driverLocationUpdatedAt),
   };
+}
+
+/** Prefer canonical DriverLocation; fall back to legacy departure columns. */
+export function driverLocationFromDeparture(
+  departure: {
+    driverLat: number | null;
+    driverLng: number | null;
+    driverLocationUpdatedAt: Date | null;
+  },
+  driverLocation?: DriverLocationRecord | null,
+): DriverLocationDto | null {
+  const fromTable = driverLocationDtoFromRecord(driverLocation ?? null);
+  if (fromTable) return fromTable;
+  return driverLocationFromDepartureColumns(departure);
 }

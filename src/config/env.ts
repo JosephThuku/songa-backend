@@ -26,9 +26,19 @@ const envSchema = z.object({
   CORS_ALLOW_ALL: z.enum(["true", "false", "1", "0"]).optional(),
   CORS_ORIGINS: z.string().optional().default(""),
   // SMS — leave WASILIANA_API_KEY unset to fall back to console logging (dev).
-  WASILIANA_API_KEY: z.string().optional(),
-  WASILIANA_SENDER_ID: z.string().optional(),
-  WASILIANA_BASE_URL: z.string().url().optional(),
+  WASILIANA_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined),
+  WASILIANA_SENDER_ID: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined),
+  WASILIANA_BASE_URL: z
+    .string()
+    .url()
+    .optional()
+    .transform((v) => v?.trim() || undefined),
   /** Google Maps Platform — Directions (traffic-aware routes). Falls back to GOOGLE_PLACES_API_KEY. */
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),

@@ -263,24 +263,18 @@ async function seedDemoOpenTripRequest(prisma: PrismaClient, sgrId: string) {
   departureAt.setUTCDate(departureAt.getUTCDate() + 1);
   departureAt.setUTCHours(9, 0, 0, 0); // ~12:00 EAT van
 
-  const departureDate = departureAt.toISOString().slice(0, 10);
-
   const tripRequest = await prisma.sharedTripRequest.upsert({
     where: { id: "trip_req_seed_cbd_express" },
     update: {
       status: "open",
       requestedDepartureAt: departureAt,
-      departureDate,
       seatsRequested: 2,
       matchedDepartureId: null,
     },
     create: {
       id: "trip_req_seed_cbd_express",
       sgrScheduleSlotId: slot.id,
-      corridorLocationId: cbd.id,
-      direction: "to_sgr",
       requestedDepartureAt: departureAt,
-      departureDate,
       seatsRequested: 2,
       status: "open",
     },
