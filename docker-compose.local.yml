@@ -1,11 +1,14 @@
-# Songa backend stack: MySQL + Redis + API
+# OPTIONAL — local-only stack (MySQL + Redis + API on :4000).
+#
+# The team default is the HOSTED Songa API. Do NOT run this on laptops unless
+# you are developing backend changes without access to staging/production.
 #
 # Usage:
-#   docker compose up --build -d
+#   docker compose -f docker-compose.local.yml up --build -d
 #   curl http://localhost:4000/api/health
 #
-# Mobile app: set EXPO_PUBLIC_API_BASE_URL=http://localhost:4000
-# (Android emulator: http://10.0.2.2:4000)
+# Mobile app (local API only): EXPO_PUBLIC_API_BASE_URL=http://localhost:4000
+# Android emulator: http://10.0.2.2:4000
 
 services:
   mysql:
@@ -56,11 +59,11 @@ services:
       SESSION_JWT_SECRET: docker-dev-session-secret-min-16-chars
       OTP_PEPPER: docker-dev-otp-pepper-min-8
       PORT: "4000"
-      NODE_ENV: production
+      NODE_ENV: development
       CORS_ALLOW_ALL: "true"
       ALLOW_DEV_PAYMENT_CONFIRM: "true"
       USE_DUMMY_PLACES: "true"
-      RUN_DB_SEED: "true"
+      DB_SEED_PROFILE: "dev"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
       interval: 15s

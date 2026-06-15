@@ -24,6 +24,7 @@
     "db:backfill-ride-seats": "tsx scripts/backfill-ride-seats.ts",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:production": "tsx prisma/seed-production.ts",
     "db:seed:shared-rides": "tsx prisma/seed-shared-rides.ts",
     "shared-rides:release-expired-holds": "tsx scripts/release-expired-seat-holds.ts",
     "simulate:ride": "tsx scripts/simulate-ride-flow.ts",

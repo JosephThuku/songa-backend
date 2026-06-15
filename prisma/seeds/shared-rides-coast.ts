@@ -188,8 +188,17 @@ async function upsertSlot(
   });
 }
 
+export type SeedSharedRidesCoastOptions = {
+  /** Dev-only demo departures, trip pools, and QA passengers. Default true. */
+  includeDemoData?: boolean;
+};
+
 /** Idempotent seed for coast shared-rides catalog + optional demo departures. */
-export async function seedSharedRidesCoast(prisma: PrismaClient) {
+export async function seedSharedRidesCoast(
+  prisma: PrismaClient,
+  options: SeedSharedRidesCoastOptions = {},
+) {
+  const includeDemoData = options.includeDemoData ?? true;
   const sgr = await upsertLocation(prisma, SGR_MIRITINI);
   let slotCount = 0;
 
@@ -214,16 +223,18 @@ export async function seedSharedRidesCoast(prisma: PrismaClient) {
     }
   }
 
-  const demoDepartures = await seedDriverVanDepartures(prisma, sgr.id);
-  const demoTripRequest = await seedDemoOpenTripRequest(prisma, sgr.id);
-  const nyaliMorningBoarding = await seedNyaliMorningBoardingPassengers(prisma);
+  const demoDepartures = includeDemoData ? await seedDriverVanDepartures(prisma, sgr.id) : [];
+  const demoTripRequest = includeDemoData ? await seedDemoOpenTripRequest(prisma, sgr.id) : null;
+  const nyaliMorningBoarding = includeDemoData
+    ? await seedNyaliMorningBoardingPassengers(prisma)
+    : { passengerCount: 0 };
 
   return {
     sgrLocationId: sgr.id,
     zoneSlugs: COAST_CORRIDOR_ZONES.map((z) => z.slug),
     slotCount,
     demoDepartures,
-    driverVanDepartures: driverVanDepartureSummary(),
+    driverVanDepartures: includeDemoData ? driverVanDepartureSummary() : [],
     demoTripRequest,
     nyaliMorningBoarding,
     qa: {
