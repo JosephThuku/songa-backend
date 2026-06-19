@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildOpenApiDocument } from "../src/lib/openapi.js";
 import { prisma } from "../src/lib/prisma.js";
 import { seedSharedRidesCoast } from "../prisma/seeds/shared-rides-coast.js";
@@ -16,6 +16,13 @@ async function loginPassenger(app: Express, phone: string): Promise<string> {
 }
 
 describe("Shared rides departure seats and booking (Phase 3)", () => {
+  const originalDevPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM;
+
+  afterEach(() => {
+    if (originalDevPay == null) delete process.env.ALLOW_DEV_PAYMENT_CONFIRM;
+    else process.env.ALLOW_DEV_PAYMENT_CONFIRM = originalDevPay;
+  });
+
   it("registers OpenAPI paths for departure booking", () => {
     const doc = buildOpenApiDocument();
     expect(doc.paths?.["/api/shared-rides/departures/{departureId}"]).toBeDefined();
@@ -33,6 +40,7 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
       data: { driverId: driverSession.user.id },
     });
     const token = await loginPassenger(app, PASSENGER_A);
+    process.env.ALLOW_DEV_PAYMENT_CONFIRM = "true";
     const devAutoPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true";
 
     const detailBefore = await request(app)
@@ -71,7 +79,7 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     const pay = await request(app)
       .post(`/api/bookings/${bookingRes.body.booking.id}/pay`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ provider: "flutterwave" });
+      .send({ provider: "mpesa" });
     expect(pay.status).toBe(200);
     if (devAutoPay) {
       expect(pay.body.payment.status).toBe("succeeded");

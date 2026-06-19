@@ -555,7 +555,7 @@ export const PayInvitePaySchema = registry.register(
   "PayInvitePay",
   z
     .object({
-      provider: z.enum(["mpesa", "flutterwave"]),
+      provider: z.enum(["mpesa"]),
       phone: z.string().optional(),
     })
     .strict(),

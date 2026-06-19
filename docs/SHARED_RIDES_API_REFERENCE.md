@@ -144,7 +144,7 @@ Copy fields from `suggestedTripRequests` item (or build manually):
 
 | Method | Path | Body |
 |--------|------|------|
-| `POST` | `/api/bookings/{bookingId}/pay` | `{ "provider": "mpesa", "phone": "+2547…" }` or `"flutterwave"` |
+| `POST` | `/api/bookings/{bookingId}/pay` | `{ "provider": "mpesa", "phone": "+2547…" }` |
 
 Booking comes from `POST …/bookings` with `product: "shared_sgr"`.  
 **Pricing (Joseph):** `subtotal` = `pricePerSeat × seat count`, `platformFee` = **0**, `total` = `subtotal`. **Do not show +50 KES or a platform-fee row** — charge `total` only. Songa driver billing (daily fee vs % holdback + weekly payout) is backlog.  

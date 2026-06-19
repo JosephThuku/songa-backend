@@ -575,10 +575,9 @@ async function transitionDriverRide(
     const write = await tx.ride.updateMany({ where: { id: rideId, driverId, phase: previousPhaseFor(phase) }, data: { ...data, phase } });
     if (write.count !== 1) throw new AppError("INVALID_PHASE", 409, "Invalid ride phase.");
     const currentRide = await tx.ride.findUniqueOrThrow({ where: { id: rideId } });
-    if (phase === RidePhase.trip_ended) {
-      // Bug 4.1 — driver receives 100% of the passenger-paid fare.
-      // Booking.platformFee is retained on the Booking row for accounting only;
-      // it is no longer deducted from the wallet credit.
+    if (phase === RidePhase.trip_ended && currentRide.prepaid) {
+      // Only in-app collected rides become withdrawable wallet balance.
+      // Pay-on-drop rides are paid directly to the driver and remain ride earnings/history.
       await tx.walletTransaction.create({
         data: {
           id: `tx_${cuid()}`,

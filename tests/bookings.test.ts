@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/lib/prisma.js";
 import { buildTestApp, createAuthSession } from "./helpers.js";
 
@@ -19,9 +19,17 @@ const bookingBody = {
 };
 
 describe("bookings and prepaid rides", () => {
+  const originalDevPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM;
+
+  afterEach(() => {
+    if (originalDevPay == null) delete process.env.ALLOW_DEV_PAYMENT_CONFIRM;
+    else process.env.ALLOW_DEV_PAYMENT_CONFIRM = originalDevPay;
+  });
+
   it("creates a booking, starts payment, and returns booking status", async () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE);
+    process.env.ALLOW_DEV_PAYMENT_CONFIRM = "true";
 
     const created = await request(app)
       .post("/api/bookings")
@@ -41,13 +49,12 @@ describe("bookings and prepaid rides", () => {
     const payment = await request(app)
       .post(`/api/bookings/${created.body.booking.id}/pay`)
       .set("Authorization", `Bearer ${passenger.token}`)
-      .send({ provider: "flutterwave" });
+      .send({ provider: "mpesa" });
     expect(payment.status).toBe(200);
-    const devAutoPay = process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true";
     expect(payment.body.payment).toMatchObject({
-      provider: "flutterwave",
-      status: devAutoPay ? "succeeded" : "pending",
-      ...(devAutoPay ? { checkoutUrl: null } : { checkoutUrl: expect.stringContaining(created.body.booking.id) }),
+      provider: "mpesa",
+      status: "succeeded",
+      checkoutUrl: null,
     });
 
     const fetched = await request(app)
@@ -56,6 +63,42 @@ describe("bookings and prepaid rides", () => {
     expect(fetched.status).toBe(200);
     expect(fetched.body.booking.id).toBe(created.body.booking.id);
     expect(fetched.body.booking.payment.reference).toBe(payment.body.payment.reference);
+  });
+
+  it("disables Flutterwave booking payments until a real checkout exists", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+    const created = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+
+    const payment = await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/pay`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ provider: "flutterwave" });
+
+    expect(payment.status).toBe(503);
+    expect(payment.body.error.code).toBe("PAYMENT_PROVIDER_DISABLED");
+  });
+
+  it("disables manual M-Pesa Paybill and Till booking payments", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+    const created = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+
+    const payment = await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/pay`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ provider: "mpesa", mpesaChannel: "paybill" });
+
+    expect(payment.status).toBe(503);
+    expect(payment.body.error.code).toBe("MPESA_MANUAL_DISABLED");
   });
 
   it("masks booking existence from other passengers", async () => {
