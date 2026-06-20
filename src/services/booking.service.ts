@@ -15,6 +15,7 @@ import { getMpesaDisplayConfig } from "../config/mpesa-display.js";
 import { isMpesaConfigured } from "../config/mpesa.js";
 import { MpesaService } from "./mpesa.service.js";
 import { completeBookingPayment } from "./booking-payment.service.js";
+import { reconcilePendingStkPayment } from "./mpesa-reconcile.service.js";
 
 const PLATFORM_FEE = PLATFORM_FEE_KES;
 
@@ -245,6 +246,24 @@ export async function getBooking(bookingId: string, passengerId: string) {
     throw new AppError("BOOKING_NOT_FOUND", 404, "Booking not found.");
   }
   return { booking: toBookingDto(booking) };
+}
+
+/** Poll Safaricom for STK status when the callback may have been missed. */
+export async function refreshBookingPaymentStatus(bookingId: string, passengerId: string) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+  if (!booking || booking.passengerId !== passengerId) {
+    throw new AppError("BOOKING_NOT_FOUND", 404, "Booking not found.");
+  }
+
+  const payment = booking.payments[0];
+  if (payment?.status === "pending" && payment.mpesaCheckoutRequestId) {
+    await reconcilePendingStkPayment(payment.id);
+  }
+
+  return getBooking(bookingId, passengerId);
 }
 
 export async function requirePaidBooking(bookingId: string, passengerId: string): Promise<void> {

@@ -97,6 +97,65 @@ export class MpesaService {
     return { status: "success", data };
   }
 
+  async stkQuery(
+    checkoutRequestId: string,
+  ): Promise<{ status: "success" | "error"; message?: string; data?: Record<string, unknown> }> {
+    const token = await this.generateAccessToken();
+    if (!token) return { status: "error", message: "Could not generate M-Pesa access token" };
+
+    const ts = timestamp();
+    const password = Buffer.from(`${this.config.shortcode}${this.config.passKey}${ts}`).toString("base64");
+
+    const payload = {
+      BusinessShortCode: this.config.shortcode,
+      Password: password,
+      Timestamp: ts,
+      CheckoutRequestID: checkoutRequestId,
+    };
+
+    const res = await fetch(`${this.config.baseUrl}/mpesa/stkpushquery/v1/query`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      logger.error({ data }, "M-Pesa STK query failed");
+      return { status: "error", message: String(data.errorMessage ?? "STK query failed") };
+    }
+    return { status: "success", data };
+  }
+
+  async registerC2bUrls(): Promise<{
+    status: "success" | "error";
+    message?: string;
+    data?: Record<string, unknown>;
+  }> {
+    const token = await this.generateAccessToken();
+    if (!token) return { status: "error", message: "Could not generate M-Pesa access token" };
+
+    const payload = {
+      ShortCode: this.config.shortcode,
+      ResponseType: "Cancelled",
+      ConfirmationURL: this.config.c2bConfirmationUrl,
+      ValidationURL: this.config.c2bValidationUrl,
+    };
+
+    const res = await fetch(`${this.config.baseUrl}/mpesa/c2b/v1/registerurl`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      logger.error({ data }, "M-Pesa C2B URL registration failed");
+      return { status: "error", message: String(data.errorMessage ?? "C2B registration failed") };
+    }
+    return { status: "success", data };
+  }
+
   async initiateB2c(input: {
     amount: number;
     phone: string;

@@ -3,7 +3,7 @@ import { AppError, asyncHandler } from "../lib/errors.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { requireRole } from "../middleware/require-role.js";
 import { CreateBookingRequestSchema, PayBookingRequestSchema } from "../schemas/booking.schema.js";
-import { createBooking, getBooking, startPayment } from "../services/booking.service.js";
+import { createBooking, getBooking, refreshBookingPaymentStatus, startPayment } from "../services/booking.service.js";
 
 const router: Router = Router();
 
@@ -33,6 +33,14 @@ router.post(
         mpesaChannel: parsed.mpesaChannel,
       }),
     );
+  }),
+);
+
+router.get(
+  "/:id/payment-status",
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new AppError("UNAUTHORIZED", 401, "Authentication required.");
+    res.status(200).json(await refreshBookingPaymentStatus(req.params.id, req.user.id));
   }),
 );
 

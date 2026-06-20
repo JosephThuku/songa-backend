@@ -5,6 +5,11 @@ import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/prisma.js";
 import { completeBookingPayment } from "../services/booking-payment.service.js";
 import {
+  handleC2bConfirmation,
+  handleC2bValidation,
+  type C2bPayload,
+} from "../services/mpesa-c2b.service.js";
+import {
   refundFailedCashout,
   completeCashout,
   findPendingCashoutByOriginator,
@@ -76,6 +81,26 @@ router.post(
   }),
 );
 
+/** Safaricom C2B validation — public, no auth. */
+router.post(
+  "/c2b-validation",
+  asyncHandler(async (req, res) => {
+    logger.info({ payload: req.body }, "M-Pesa C2B validation");
+    const result = await handleC2bValidation(req.body as C2bPayload);
+    res.json(result);
+  }),
+);
+
+/** Safaricom C2B confirmation — public, no auth. */
+router.post(
+  "/c2b-confirmation",
+  asyncHandler(async (req, res) => {
+    logger.info({ payload: req.body }, "M-Pesa C2B confirmation");
+    await handleC2bConfirmation(req.body as C2bPayload);
+    res.json({ ResultCode: 0, ResultDesc: "Success" });
+  }),
+);
+
 /** Safaricom B2C result callback. */
 router.post(
   "/b2c-callback",
@@ -114,6 +139,16 @@ router.post(
   "/b2c-timeout",
   asyncHandler(async (req, res) => {
     logger.warn({ payload: req.body }, "M-Pesa B2C timeout");
+
+    const result = (req.body as { Result?: Record<string, unknown> }).Result;
+    const originatorId = result?.OriginatorConversationID;
+    if (originatorId && typeof originatorId === "string") {
+      const tx = await findPendingCashoutByOriginator(originatorId);
+      if (tx) {
+        await refundFailedCashout(tx.id, "B2C timeout", { b2c_timeout: req.body });
+      }
+    }
+
     res.json({ ResultCode: 0, ResultDesc: "Success" });
   }),
 );

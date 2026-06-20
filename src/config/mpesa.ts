@@ -16,6 +16,8 @@ export type MpesaConfig = {
   stkCallbackUrl: string;
   b2cResultUrl: string;
   b2cTimeoutUrl: string;
+  c2bValidationUrl: string;
+  c2bConfirmationUrl: string;
   publicApiUrl: string;
 };
 
@@ -72,6 +74,14 @@ export function loadMpesaConfig(): MpesaConfig {
     stkCallbackUrl: envFlag("MPESA_STK_CALLBACK_URL", `${publicApiUrl}/api/mpesa/stk-callback`),
     b2cResultUrl: envFlag("MPESA_B2C_RESULT_URL", `${publicApiUrl}/api/mpesa/b2c-callback`),
     b2cTimeoutUrl: envFlag("MPESA_B2C_TIMEOUT_URL", `${publicApiUrl}/api/mpesa/b2c-timeout`),
+    c2bValidationUrl: envFlag(
+      "MPESA_C2B_VALIDATION_URL",
+      `${publicApiUrl}/api/mpesa/c2b-validation`,
+    ),
+    c2bConfirmationUrl: envFlag(
+      "MPESA_C2B_CONFIRMATION_URL",
+      `${publicApiUrl}/api/mpesa/c2b-confirmation`,
+    ),
     publicApiUrl,
   };
 }
