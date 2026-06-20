@@ -23,10 +23,10 @@ export const PayBookingRequestSchema = registry.register(
   "PayBookingRequest",
   z
     .object({
-      provider: z.enum(["flutterwave", "mpesa"]).default("flutterwave"),
+      provider: z.enum(["flutterwave", "mpesa"]).default("mpesa"),
       /** Required for M-Pesa STK when not using ALLOW_DEV_PAYMENT_CONFIRM. */
       phone: z.string().trim().min(9).max(20).optional(),
-      /** STK push (default), or manual Lipa na M-Pesa Paybill / Buy Goods Till. */
+      /** STK push (default). Paybill/Till are intentionally disabled until C2B reconciliation is implemented. */
       mpesaChannel: z.enum(["stk", "paybill", "till"]).optional(),
     })
     .strict(),
@@ -66,4 +66,3 @@ registry.registerPath({
     404: { description: "Booking not found.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
   },
 });
-

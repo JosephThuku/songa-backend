@@ -6,6 +6,9 @@ Items intentionally **not** in the current “finish shared rides” PR unless n
 
 ## Driver / Songa billing (product TBD)
 
+Detailed payment, wallet, cashout, and subscription issues now live in
+[payments-wallet-subscriptions.md](./payments-wallet-subscriptions.md).
+
 **Mobile (Joseph):** Shared checkout = **fare only**. No +50 KES, no platform-fee line. Use `booking.total`; `platformFee` is always `0` on `shared_sgr`.
 
 **Today (backend):**

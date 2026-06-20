@@ -11,7 +11,6 @@ import {
 } from "../lib/booking-seats.js";
 import { persistPlacePair } from "../lib/place-persist.js";
 import type { PlaceDto } from "../lib/responses.js";
-import { getMpesaDisplayConfig } from "../config/mpesa-display.js";
 import { isMpesaConfigured } from "../config/mpesa.js";
 import { MpesaService } from "./mpesa.service.js";
 import { completeBookingPayment } from "./booking-payment.service.js";
@@ -105,6 +104,22 @@ export async function startPayment(input: StartPaymentInput) {
     });
   }
 
+  if (provider !== "mpesa") {
+    throw new AppError(
+      "PAYMENT_PROVIDER_DISABLED",
+      503,
+      "This payment provider is not available yet. Use M-Pesa STK push.",
+    );
+  }
+
+  if (mpesaChannel !== "stk") {
+    throw new AppError(
+      "MPESA_MANUAL_DISABLED",
+      503,
+      "Manual M-Pesa Paybill/Till payments are not available yet. Use STK push.",
+    );
+  }
+
   if (process.env.ALLOW_DEV_PAYMENT_CONFIRM === "true") {
     await completeBookingPayment(booking, payment, `DEV-${cuid()}`, { simulated: true, provider });
     const updated = await prisma.booking.findUniqueOrThrow({
@@ -117,125 +132,70 @@ export async function startPayment(input: StartPaymentInput) {
     };
   }
 
-  if (provider === "mpesa") {
-    const mpesaDisplay = getMpesaDisplayConfig();
-
-    if (mpesaChannel === "paybill" || mpesaChannel === "till") {
-      const number = mpesaChannel === "paybill" ? mpesaDisplay.paybill : mpesaDisplay.till;
-      if (!number) {
-        throw new AppError(
-          "MPESA_MANUAL_NOT_CONFIGURED",
-          503,
-          mpesaChannel === "paybill"
-            ? "Paybill payments are not configured yet. Use STK push or card."
-            : "Till payments are not configured yet. Use STK push or card.",
-        );
-      }
-
-      payment = await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          reference,
-          gatewayResponse: {
-            manual_channel: mpesaChannel,
-            account_reference: reference,
-          } as Prisma.InputJsonValue,
-        },
-      });
-
-      return {
-        payment: toPaymentDto(payment),
-        message:
-          mpesaChannel === "paybill"
-            ? "Pay via M-Pesa Paybill using the details below. Seats confirm after payment is received."
-            : "Pay via Buy Goods Till using the details below. Seats confirm after payment is received.",
-        manualPayment: {
-          channel: mpesaChannel,
-          businessName: mpesaDisplay.businessName,
-          number,
-          accountReference: reference,
-          amount: booking.total,
-          currency: "KES",
-        },
-      };
-    }
-
-    if (!isMpesaConfigured()) {
-      throw new AppError("MPESA_NOT_CONFIGURED", 503, "M-Pesa is not configured on this server.");
-    }
-    if (!phone?.trim()) {
-      throw new AppError("PHONE_REQUIRED", 400, "Phone number is required for M-Pesa STK push.");
-    }
-
-    const mpesa = new MpesaService();
-    const amount = Math.round(booking.total);
-    const result = await mpesa.stkPush({
-      amount,
-      phone: phone.trim(),
-      accountReference: reference,
-      transactionDesc: "Songa booking",
-    });
-
-    if (result.status !== "success") {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: "failed",
-          gatewayResponse: { stk_error: result } as Prisma.InputJsonValue,
-        },
-      });
-      throw new AppError("MPESA_STK_FAILED", 502, result.message ?? "Could not start M-Pesa payment.");
-    }
-
-    const data = result.data ?? {};
-    const responseCode = String(data.ResponseCode ?? "");
-    if (responseCode && responseCode !== "0") {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: "failed",
-          gatewayResponse: { stk_response: data } as Prisma.InputJsonValue,
-        },
-      });
-      throw new AppError(
-        "MPESA_STK_FAILED",
-        502,
-        String(data.CustomerMessage ?? data.ResponseDescription ?? "M-Pesa did not accept the STK request."),
-      );
-    }
-
-    const checkoutRequestId = data.CheckoutRequestID;
-    if (!checkoutRequestId || typeof checkoutRequestId !== "string") {
-      throw new AppError("MPESA_STK_FAILED", 502, "Invalid response from M-Pesa.");
-    }
-
-    payment = await prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        reference,
-        mpesaCheckoutRequestId: checkoutRequestId,
-        gatewayResponse: {
-          stk_init: data,
-          phone: phone.trim(),
-        } as Prisma.InputJsonValue,
-      },
-    });
-
-    return {
-      payment: toPaymentDto(payment),
-      message: "Check your phone for the M-Pesa prompt and enter your PIN.",
-    };
+  if (!isMpesaConfigured()) {
+    throw new AppError("MPESA_NOT_CONFIGURED", 503, "M-Pesa is not configured on this server.");
+  }
+  if (!phone?.trim()) {
+    throw new AppError("PHONE_REQUIRED", 400, "Phone number is required for M-Pesa STK push.");
   }
 
-  const checkoutUrl = `https://payments.songa.local/checkout/${bookingId}?ref=${payment.reference}`;
+  const mpesa = new MpesaService();
+  const amount = Math.round(booking.total);
+  const result = await mpesa.stkPush({
+    amount,
+    phone: phone.trim(),
+    accountReference: reference,
+    transactionDesc: "Songa booking",
+  });
+
+  if (result.status !== "success") {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "failed",
+        gatewayResponse: { stk_error: result } as Prisma.InputJsonValue,
+      },
+    });
+    throw new AppError("MPESA_STK_FAILED", 502, result.message ?? "Could not start M-Pesa payment.");
+  }
+
+  const data = result.data ?? {};
+  const responseCode = String(data.ResponseCode ?? "");
+  if (responseCode && responseCode !== "0") {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "failed",
+        gatewayResponse: { stk_response: data } as Prisma.InputJsonValue,
+      },
+    });
+    throw new AppError(
+      "MPESA_STK_FAILED",
+      502,
+      String(data.CustomerMessage ?? data.ResponseDescription ?? "M-Pesa did not accept the STK request."),
+    );
+  }
+
+  const checkoutRequestId = data.CheckoutRequestID;
+  if (!checkoutRequestId || typeof checkoutRequestId !== "string") {
+    throw new AppError("MPESA_STK_FAILED", 502, "Invalid response from M-Pesa.");
+  }
+
   payment = await prisma.payment.update({
     where: { id: payment.id },
-    data: { checkoutUrl },
+    data: {
+      reference,
+      mpesaCheckoutRequestId: checkoutRequestId,
+      gatewayResponse: {
+        stk_init: data,
+        phone: phone.trim(),
+      } as Prisma.InputJsonValue,
+    },
   });
 
   return {
     payment: toPaymentDto(payment),
-    message: "Complete payment using the checkout link.",
+    message: "Check your phone for the M-Pesa prompt and enter your PIN.",
   };
 }
 
