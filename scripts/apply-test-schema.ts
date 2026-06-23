@@ -12,6 +12,7 @@ const APPLIED_MIGRATIONS = [
   "20260605300000_booking_seats",
   "20260605400000_trip_request_trim",
   "20260605500000_phase5_location_decline_seats",
+  "20260623120000_user_is_blocked",
 ] as const;
 
 execSync("npx prisma db push", {

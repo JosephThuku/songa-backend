@@ -3,7 +3,7 @@
  * Run automatically via npm `pretest` / `predev` / `prebuild`, or manually: npm run db:generate
  */
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "url";
 
@@ -21,8 +21,15 @@ const REQUIRED_DELEGATES = [
   "sharedDepartureSeat",
 ] as const;
 
+/** Scalar fields that must exist on User (catches stale clients after schema changes). */
+const REQUIRED_USER_SCALAR_FIELDS = ["isBlocked"] as const;
+
 function delegateMissing(clientSource: string, delegate: string): boolean {
   return !clientSource.includes(`get ${delegate}()`);
+}
+
+function userScalarFieldMissing(clientSource: string, field: string): boolean {
+  return !clientSource.includes(`${field}: '${field}'`);
 }
 
 function readClientSource(): string | null {
@@ -34,6 +41,7 @@ function isClientStale(): boolean {
   const source = readClientSource();
   if (!source) return true;
   if (REQUIRED_DELEGATES.some((d) => delegateMissing(source, d))) return true;
+  if (REQUIRED_USER_SCALAR_FIELDS.some((f) => userScalarFieldMissing(source, f))) return true;
   if (!existsSync(schemaPath)) return false;
   try {
     return statSync(schemaPath).mtimeMs > statSync(clientTypesPath).mtimeMs;
@@ -43,6 +51,11 @@ function isClientStale(): boolean {
 }
 
 function runGenerate(): void {
+  const clientDir = path.join(root, "node_modules/.prisma/client");
+  if (existsSync(clientDir)) {
+    console.log("[prisma] Removing stale generated client…");
+    rmSync(clientDir, { recursive: true, force: true });
+  }
   console.log("[prisma] Generating client (schema newer than client or models missing)…");
   execSync("npx prisma generate", { cwd: root, stdio: "inherit", env: process.env });
 }
@@ -53,10 +66,16 @@ function verify(): void {
     console.error("[prisma] Client not found after generate. Run: npm install && npm run db:sync");
     process.exit(1);
   }
-  const missing = REQUIRED_DELEGATES.filter((d) => delegateMissing(source, d));
-  if (missing.length > 0) {
+  const missingDelegates = REQUIRED_DELEGATES.filter((d) => delegateMissing(source, d));
+  const missingUserFields = REQUIRED_USER_SCALAR_FIELDS.filter((f) =>
+    userScalarFieldMissing(source, f),
+  );
+  if (missingDelegates.length > 0 || missingUserFields.length > 0) {
+    const parts: string[] = [];
+    if (missingDelegates.length > 0) parts.push(`models: ${missingDelegates.join(", ")}`);
+    if (missingUserFields.length > 0) parts.push(`User fields: ${missingUserFields.join(", ")}`);
     console.error(
-      `[prisma] Generated client is still missing: ${missing.join(", ")}.\n` +
+      `[prisma] Generated client is still missing ${parts.join("; ")}.\n` +
         "  Run from songa-backend/: npm run db:sync\n" +
         "  Then restart the TypeScript server in your editor.",
     );

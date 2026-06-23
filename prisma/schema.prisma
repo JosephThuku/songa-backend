@@ -75,6 +75,7 @@ model User {
   email         String?
   passwordHash  String?
   phoneVerified Boolean   @default(false)
+  isBlocked     Boolean   @default(false)
   avatarUrl     String?
   rating        Float     @default(5.0)
   createdAt     DateTime  @default(now())

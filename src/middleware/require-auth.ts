@@ -1,6 +1,7 @@
 // NEW — requireAuth middleware.
 
 import type { NextFunction, Request, Response } from "express";
+import type { Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
 import { hashToken, verifySessionToken } from "../lib/jwt.js";
 import { prisma } from "../lib/prisma.js";
@@ -49,6 +50,17 @@ export async function requireAuth(
     }
     if (session.expiresAt.getTime() < Date.now()) {
       throw new AppError("UNAUTHORIZED", 401, "Session expired.");
+    }
+
+    const user = (await prisma.user.findUnique({
+      where: { id: String(payload.sub) },
+      select: { isBlocked: true } as Prisma.UserSelect,
+    })) as { isBlocked: boolean } | null;
+    if (!user) {
+      throw new AppError("UNAUTHORIZED", 401, "User not found.");
+    }
+    if (user.isBlocked) {
+      throw new AppError("ACCOUNT_BLOCKED", 403, "This account has been suspended.");
     }
 
     const role = payload.role;

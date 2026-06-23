@@ -5,24 +5,30 @@ import { requireRole } from "../middleware/require-role.js";
 import {
   AdminBookingQuerySchema,
   AdminDriverQuerySchema,
+  AdminPatchUserSchema,
   AdminRideQuerySchema,
   AdminUpdateDriverStatusSchema,
   AdminUserQuerySchema,
   AdminWalletQuerySchema,
 } from "../schemas/admin.schema.js";
 import {
+  adminDeactivateUser,
   adminGetBooking,
   adminGetDriver,
+  adminGetPassenger,
   adminGetRide,
   adminGetUser,
   adminListBookings,
   adminListCashouts,
   adminListDrivers,
+  adminListPassengers,
   adminListRides,
   adminListUsers,
   adminListWalletTransactions,
+  adminPatchUser,
   adminUpdateDriverStatus,
 } from "../services/admin.service.js";
+import { AppError } from "../lib/errors.js";
 
 const router: Router = Router();
 
@@ -41,6 +47,38 @@ router.get(
   "/users/:id",
   asyncHandler(async (req, res) => {
     res.json(await adminGetUser(String(req.params.id)));
+  }),
+);
+
+router.patch(
+  "/users/:id",
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new AppError("UNAUTHORIZED", 401, "Authentication required.");
+    const body = AdminPatchUserSchema.parse(req.body);
+    res.json(await adminPatchUser(req.user.id, String(req.params.id), body));
+  }),
+);
+
+router.delete(
+  "/users/:id",
+  asyncHandler(async (req, res) => {
+    if (!req.user) throw new AppError("UNAUTHORIZED", 401, "Authentication required.");
+    res.json(await adminDeactivateUser(req.user.id, String(req.params.id)));
+  }),
+);
+
+router.get(
+  "/passengers",
+  asyncHandler(async (req, res) => {
+    const query = AdminUserQuerySchema.parse(req.query);
+    res.json(await adminListPassengers(query));
+  }),
+);
+
+router.get(
+  "/passengers/:id",
+  asyncHandler(async (req, res) => {
+    res.json(await adminGetPassenger(String(req.params.id)));
   }),
 );
 

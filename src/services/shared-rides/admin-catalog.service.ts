@@ -212,3 +212,139 @@ export async function adminUpdateSgrScheduleSlot(id: string, data: UpdateSlotInp
 export async function adminDeactivateSgrScheduleSlot(id: string) {
   return adminUpdateSgrScheduleSlot(id, { isActive: false });
 }
+
+const slotInclude = {
+  pickupLocation: { select: locationSelect },
+  dropoffLocation: { select: locationSelect },
+} as const;
+
+export async function adminListCorridorLocations(query: {
+  q?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}) {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 50;
+  const skip = (page - 1) * limit;
+  const where: Prisma.CorridorLocationWhereInput = {
+    ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+    ...(query.q
+      ? {
+          OR: [
+            { name: { contains: query.q } },
+            { slug: { contains: query.q } },
+          ],
+        }
+      : {}),
+  };
+
+  const [items, total] = await Promise.all([
+    prisma.corridorLocation.findMany({
+      where,
+      select: {
+        ...locationSelect,
+        _count: {
+          select: {
+            pickupSlots: true,
+            dropoffSlots: true,
+            departuresFrom: true,
+            departuresTo: true,
+          },
+        },
+      },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.corridorLocation.count({ where }),
+  ]);
+
+  return {
+    locations: items,
+    meta: { total, page, limit, hasMore: page * limit < total },
+  };
+}
+
+export async function adminGetCorridorLocation(id: string) {
+  const location = await prisma.corridorLocation.findUnique({
+    where: { id },
+    select: {
+      ...locationSelect,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: {
+          pickupSlots: true,
+          dropoffSlots: true,
+          departuresFrom: true,
+          departuresTo: true,
+        },
+      },
+      pickupSlots: {
+        orderBy: [{ sortOrder: "asc" }, { vanDepartureTime: "asc" }],
+        include: { dropoffLocation: { select: locationSelect } },
+      },
+      dropoffSlots: {
+        orderBy: [{ sortOrder: "asc" }, { vanDepartureTime: "asc" }],
+        include: { pickupLocation: { select: locationSelect } },
+      },
+    },
+  });
+  if (!location) {
+    throw new AppError("CORRIDOR_LOCATION_NOT_FOUND", 404, "Corridor location not found.");
+  }
+  return { location };
+}
+
+export async function adminListSgrScheduleSlots(query: {
+  pickupLocationId?: string;
+  dropoffLocationId?: string;
+  direction?: "to_sgr" | "from_sgr";
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}) {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 50;
+  const skip = (page - 1) * limit;
+  const where: Prisma.SgrScheduleSlotWhereInput = {
+    ...(query.pickupLocationId ? { pickupLocationId: query.pickupLocationId } : {}),
+    ...(query.dropoffLocationId ? { dropoffLocationId: query.dropoffLocationId } : {}),
+    ...(query.direction ? { direction: query.direction } : {}),
+    ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+  };
+
+  const [items, total] = await Promise.all([
+    prisma.sgrScheduleSlot.findMany({
+      where,
+      include: {
+        ...slotInclude,
+        _count: { select: { departures: true, tripRequests: true } },
+      },
+      orderBy: [{ sortOrder: "asc" }, { vanDepartureTime: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.sgrScheduleSlot.count({ where }),
+  ]);
+
+  return {
+    slots: items,
+    meta: { total, page, limit, hasMore: page * limit < total },
+  };
+}
+
+export async function adminGetSgrScheduleSlot(id: string) {
+  const slot = await prisma.sgrScheduleSlot.findUnique({
+    where: { id },
+    include: {
+      ...slotInclude,
+      _count: { select: { departures: true, tripRequests: true } },
+    },
+  });
+  if (!slot) {
+    throw new AppError("SGR_SLOT_NOT_FOUND", 404, "SGR schedule slot not found.");
+  }
+  return { slot };
+}

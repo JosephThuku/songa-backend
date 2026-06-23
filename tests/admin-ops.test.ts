@@ -1,4 +1,5 @@
 import cuid from "cuid";
+import type { Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { buildOpenApiDocument } from "../src/lib/openapi.js";
@@ -77,6 +78,9 @@ describe("Admin ops API", () => {
     expect(doc.paths?.["/api/admin/rides"]).toBeDefined();
     expect(doc.paths?.["/api/admin/wallet-transactions"]).toBeDefined();
     expect(doc.paths?.["/api/admin/cashouts"]).toBeDefined();
+    expect(doc.paths?.["/api/admin/passengers"]).toBeDefined();
+    expect(doc.paths?.["/api/admin/users/{id}"]?.patch).toBeDefined();
+    expect(doc.paths?.["/api/admin/shared-rides/corridor-locations"]?.get).toBeDefined();
   });
 
   it("requires an admin session", async () => {
@@ -185,5 +189,62 @@ describe("Admin ops API", () => {
     expect(updated.status).toBe(200);
     expect(updated.body.driverProfile.onboardingStatus).toBe("rejected");
     expect(updated.body.driverProfile.isOnline).toBe(false);
+  });
+
+  it("lists passengers, blocks users, and revokes sessions", async () => {
+    const app = buildTestApp();
+    const seed = await seedOpsData(app);
+    const admin = await loginAsAdmin(app);
+    const auth = adminAuth(admin.sessionToken);
+
+    const passengers = await request(app).get("/api/admin/passengers").set(auth);
+    expect(passengers.status).toBe(200);
+    expect(passengers.body.users.some((u: { id: string }) => u.id === seed.passenger.user.id)).toBe(
+      true,
+    );
+
+    const passengerDetail = await request(app)
+      .get(`/api/admin/passengers/${seed.passenger.user.id}`)
+      .set(auth);
+    expect(passengerDetail.status).toBe(200);
+    expect(passengerDetail.body.passenger.bookings.length).toBeGreaterThanOrEqual(1);
+
+    const blocked = await request(app)
+      .patch(`/api/admin/users/${seed.passenger.user.id}`)
+      .set(auth)
+      .send({ isBlocked: true });
+    expect(blocked.status).toBe(200);
+    expect(blocked.body.user.isBlocked).toBe(true);
+
+    const blockedSession = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${seed.passenger.sessionToken}`);
+    expect(blockedSession.status).toBe(403);
+    expect(blockedSession.body.error.code).toBe("ACCOUNT_BLOCKED");
+
+    const unblocked = await request(app)
+      .patch(`/api/admin/users/${seed.passenger.user.id}`)
+      .set(auth)
+      .send({ isBlocked: false });
+    expect(unblocked.status).toBe(200);
+    expect(unblocked.body.user.isBlocked).toBe(false);
+  });
+
+  it("deactivates a driver via DELETE /users/:id", async () => {
+    const app = buildTestApp();
+    const seed = await seedOpsData(app);
+    const admin = await loginAsAdmin(app);
+    const auth = adminAuth(admin.sessionToken);
+
+    const deactivated = await request(app)
+      .delete(`/api/admin/users/${seed.driver.user.id}`)
+      .set(auth);
+    expect(deactivated.status).toBe(200);
+    expect(deactivated.body.user.isBlocked).toBe(true);
+
+    const blockedDriver = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${seed.driver.sessionToken}`);
+    expect(blockedDriver.status).toBe(403);
   });
 });
