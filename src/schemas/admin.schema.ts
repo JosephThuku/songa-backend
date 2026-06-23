@@ -25,8 +25,24 @@ const RidePhaseSchema = z.enum([
 export const AdminUserQuerySchema = PageQuerySchema.extend({
   q: z.string().trim().min(1).max(100).optional(),
   role: UserRoleSchema.optional(),
+  isBlocked: z.coerce.boolean().optional(),
 });
 export type AdminUserQuery = z.infer<typeof AdminUserQuerySchema>;
+
+export const AdminPatchUserSchema = registry.register(
+  "AdminPatchUser",
+  z
+    .object({
+      name: z.string().trim().min(1).max(100).optional(),
+      email: z.string().trim().email().max(255).optional().nullable(),
+      isBlocked: z.boolean().optional(),
+    })
+    .strict()
+    .refine((data) => Object.keys(data).length > 0, {
+      message: "At least one field is required.",
+    }),
+);
+export type AdminPatchUserInput = z.infer<typeof AdminPatchUserSchema>;
 
 export const AdminDriverQuerySchema = PageQuerySchema.extend({
   q: z.string().trim().min(1).max(100).optional(),
@@ -95,6 +111,8 @@ function registerAdminGet(path: string, summary: string) {
 
 registerAdminGet("/api/admin/users", "List users");
 registerAdminGet("/api/admin/users/{id}", "Get user detail");
+registerAdminGet("/api/admin/passengers", "List passengers");
+registerAdminGet("/api/admin/passengers/{id}", "Get passenger detail");
 registerAdminGet("/api/admin/drivers", "List drivers");
 registerAdminGet("/api/admin/drivers/{id}", "Get driver detail");
 registerAdminGet("/api/admin/bookings", "List bookings");
@@ -120,6 +138,40 @@ registry.registerPath({
   responses: {
     200: { description: "Driver status updated." },
     404: { description: "Driver not found.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    ...adminErrors,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/admin/users/{id}",
+  tags: ["Admin"],
+  summary: "Update user (block, name, email)",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: {
+    params: z.object({ id: z.string().min(1) }),
+    body: {
+      required: true,
+      content: { "application/json": { schema: AdminPatchUserSchema } },
+    },
+  },
+  responses: {
+    200: { description: "User updated." },
+    404: { description: "User not found.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
+    ...adminErrors,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/admin/users/{id}",
+  tags: ["Admin"],
+  summary: "Deactivate user (block + revoke sessions)",
+  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  request: { params: z.object({ id: z.string().min(1) }) },
+  responses: {
+    200: { description: "User deactivated." },
+    404: { description: "User not found.", content: { "application/json": { schema: ErrorEnvelopeSchema } } },
     ...adminErrors,
   },
 });

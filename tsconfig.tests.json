@@ -5,6 +5,6 @@
     "noEmit": true,
     "outDir": "dist-tests"
   },
-  "include": ["tests/**/*.ts", "prisma/seeds/**/*.ts"],
+  "include": ["tests/**/*.ts", "prisma/seeds/**/*.ts", "src/types/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

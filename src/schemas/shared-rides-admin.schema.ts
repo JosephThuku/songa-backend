@@ -47,6 +47,22 @@ export const AdminUpdateSgrScheduleSlotSchema = AdminCreateSgrScheduleSlotSchema
   { message: "At least one field is required." },
 );
 
+export const AdminCorridorLocationQuerySchema = z.object({
+  q: z.string().trim().min(1).max(100).optional(),
+  isActive: z.coerce.boolean().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+export const AdminSgrScheduleSlotQuerySchema = z.object({
+  pickupLocationId: z.string().min(1).optional(),
+  dropoffLocationId: z.string().min(1).optional(),
+  direction: SharedRideDirectionSchema.optional(),
+  isActive: z.coerce.boolean().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
 const adminErrors = {
   400: {
     description: "Invalid input (`INVALID_INPUT`).",
@@ -65,6 +81,42 @@ const adminErrors = {
 const CorridorLocationBodySchema = registry.register(
   "AdminCorridorLocationBody",
   AdminCreateCorridorLocationSchema,
+);
+
+const adminCatalogErrors = {
+  404: { description: "Not found." },
+  ...adminErrors,
+} as const;
+
+function registerAdminCatalogGet(path: string, summary: string) {
+  registry.registerPath({
+    method: "get",
+    path,
+    tags: ["Shared rides (admin)"],
+    summary,
+    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+    responses: {
+      200: { description: "Catalog response." },
+      ...adminCatalogErrors,
+    },
+  });
+}
+
+registerAdminCatalogGet(
+  "/api/admin/shared-rides/corridor-locations",
+  "List corridor locations",
+);
+registerAdminCatalogGet(
+  "/api/admin/shared-rides/corridor-locations/{id}",
+  "Get corridor location with slots",
+);
+registerAdminCatalogGet(
+  "/api/admin/shared-rides/sgr-schedule-slots",
+  "List SGR schedule slots",
+);
+registerAdminCatalogGet(
+  "/api/admin/shared-rides/sgr-schedule-slots/{id}",
+  "Get SGR schedule slot detail",
 );
 
 registry.registerPath({

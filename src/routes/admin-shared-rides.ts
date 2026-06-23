@@ -7,8 +7,10 @@ import { asyncHandler } from "../lib/errors.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { requireRole } from "../middleware/require-role.js";
 import {
+  AdminCorridorLocationQuerySchema,
   AdminCreateCorridorLocationSchema,
   AdminCreateSgrScheduleSlotSchema,
+  AdminSgrScheduleSlotQuerySchema,
   AdminUpdateCorridorLocationSchema,
   AdminUpdateSgrScheduleSlotSchema,
 } from "../schemas/shared-rides-admin.schema.js";
@@ -17,6 +19,10 @@ import {
   adminCreateSgrScheduleSlot,
   adminDeactivateCorridorLocation,
   adminDeactivateSgrScheduleSlot,
+  adminGetCorridorLocation,
+  adminGetSgrScheduleSlot,
+  adminListCorridorLocations,
+  adminListSgrScheduleSlots,
   adminUpdateCorridorLocation,
   adminUpdateSgrScheduleSlot,
 } from "../services/shared-rides/admin-catalog.service.js";
@@ -25,6 +31,21 @@ const router: Router = Router();
 
 router.use(requireAuth);
 router.use(requireRole("admin"));
+
+router.get(
+  "/corridor-locations",
+  asyncHandler(async (req, res) => {
+    const query = AdminCorridorLocationQuerySchema.parse(req.query);
+    res.json(await adminListCorridorLocations(query));
+  }),
+);
+
+router.get(
+  "/corridor-locations/:id",
+  asyncHandler(async (req, res) => {
+    res.json(await adminGetCorridorLocation(String(req.params.id)));
+  }),
+);
 
 router.post(
   "/corridor-locations",
@@ -49,6 +70,21 @@ router.delete(
   asyncHandler(async (req, res) => {
     const result = await adminDeactivateCorridorLocation(String(req.params.id));
     res.json(result);
+  }),
+);
+
+router.get(
+  "/sgr-schedule-slots",
+  asyncHandler(async (req, res) => {
+    const query = AdminSgrScheduleSlotQuerySchema.parse(req.query);
+    res.json(await adminListSgrScheduleSlots(query));
+  }),
+);
+
+router.get(
+  "/sgr-schedule-slots/:id",
+  asyncHandler(async (req, res) => {
+    res.json(await adminGetSgrScheduleSlot(String(req.params.id)));
   }),
 );
 

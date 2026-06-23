@@ -8,6 +8,7 @@ import { buildTestApp, createAuthSession, loginAsAdmin } from "./helpers.js";
 function adminRequest(app: Express, sessionToken: string) {
   const auth = { Authorization: `Bearer ${sessionToken}` };
   return {
+    get: (url: string) => request(app).get(url).set(auth),
     post: (url: string) => request(app).post(url).set(auth),
     patch: (url: string) => request(app).patch(url).set(auth),
     delete: (url: string) => request(app).delete(url).set(auth),
@@ -94,6 +95,40 @@ describe("Admin shared rides API", () => {
     );
     expect(deactivated.status).toBe(200);
     expect(deactivated.body.slot.isActive).toBe(false);
+  });
+
+  it("lists corridor locations and schedule slots with detail", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+    const { sessionToken } = await loginAsAdmin(app);
+    const admin = adminRequest(app, sessionToken);
+
+    const locations = await admin.get("/api/admin/shared-rides/corridor-locations?isActive=true");
+    expect(locations.status).toBe(200);
+    expect(locations.body.locations.length).toBeGreaterThan(0);
+    expect(locations.body.locations[0]._count).toBeDefined();
+
+    const nyali = locations.body.locations.find((l: { slug: string }) => l.slug === "nyali");
+    expect(nyali).toBeDefined();
+
+    const locationDetail = await admin.get(
+      `/api/admin/shared-rides/corridor-locations/${nyali.id}`,
+    );
+    expect(locationDetail.status).toBe(200);
+    expect(locationDetail.body.location.pickupSlots).toBeDefined();
+    expect(locationDetail.body.location.dropoffSlots).toBeDefined();
+
+    const slots = await admin.get(
+      `/api/admin/shared-rides/sgr-schedule-slots?pickupLocationId=${nyali.id}`,
+    );
+    expect(slots.status).toBe(200);
+    expect(slots.body.slots.length).toBeGreaterThan(0);
+
+    const slotDetail = await admin.get(
+      `/api/admin/shared-rides/sgr-schedule-slots/${slots.body.slots[0].id}`,
+    );
+    expect(slotDetail.status).toBe(200);
+    expect(slotDetail.body.slot.pickupLocation).toBeDefined();
   });
 
   it("returns 409 when creating duplicate schedule slot", async () => {
