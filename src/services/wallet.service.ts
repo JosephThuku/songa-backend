@@ -1,5 +1,6 @@
 import cuid from "cuid";
 import { Prisma } from "@prisma/client";
+import { driverDailySubscriptionKes } from "../config/driver-subscription.js";
 import { sharedRidesDriverHoldbackPercent } from "../config/shared-rides.js";
 import { AppError } from "../lib/errors.js";
 import { getNairobiParts } from "../lib/nairobi-time.js";
@@ -12,20 +13,31 @@ import { logger } from "../lib/logger.js";
 const WALLET_LOCK_MS = 10_000;
 const WALLET_LOCK_RETRIES = 20;
 const WALLET_LOCK_RETRY_MS = 50;
-const DEFAULT_DAILY_SUBSCRIPTION_KES = 150;
 
 type WalletDb = typeof prisma | Prisma.TransactionClient;
-
-function dailySubscriptionAmountKes(): number {
-  const raw = process.env.DRIVER_DAILY_SUBSCRIPTION_KES;
-  if (!raw?.trim()) return DEFAULT_DAILY_SUBSCRIPTION_KES;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
 
 function nairobiServiceDate(at = new Date()): string {
   const p = getNairobiParts(at);
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+function nairobiServiceDayBounds(serviceDate: string): { start: Date; end: Date } {
+  const [year, month, day] = serviceDate.split("-").map((part) => Number.parseInt(part, 10));
+  const start = new Date(Date.UTC(year, month - 1, day, -3, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month - 1, day + 1, -3, 0, 0, 0));
+  return { start, end };
+}
+
+async function getDriverVehicleType(db: WalletDb, driverId: string): Promise<string | null> {
+  const profile = await db.driverProfile.findUnique({
+    where: { userId: driverId },
+    select: { vehicle: { select: { type: true } } },
+  });
+  return profile?.vehicle?.type ?? null;
+}
+
+function dailySubscriptionAmountKes(vehicleType?: string | null): number {
+  return driverDailySubscriptionKes(vehicleType);
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -86,31 +98,141 @@ async function subscriptionPaidForDate(
   return Boolean(existing);
 }
 
-export async function getDriverWallet(driverId: string) {
-  const [transactions, balance, pendingPayout] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where: { driverId },
-      orderBy: { createdAt: "desc" },
-      take: 30,
+async function driverHasActivityToday(
+  db: WalletDb,
+  driverId: string,
+  serviceDate: string,
+): Promise<boolean> {
+  const { start, end } = nairobiServiceDayBounds(serviceDate);
+  const [ride, walletCredit] = await Promise.all([
+    db.ride.findFirst({
+      where: { driverId, phase: "trip_ended", updatedAt: { gte: start, lt: end } },
+      select: { id: true },
     }),
-    walletBalance(prisma, driverId),
-    pendingPayoutAmount(prisma, driverId),
+    db.walletTransaction.findFirst({
+      where: {
+        driverId,
+        createdAt: { gte: start, lt: end },
+        amount: { gt: 0 },
+        status: "posted",
+      },
+      select: { id: true },
+    }),
   ]);
-  const subscriptionAmount = dailySubscriptionAmountKes();
-  const subscriptionPaidToday = await subscriptionPaidForDate(
-    prisma,
-    driverId,
-    nairobiServiceDate(),
-  );
+  return Boolean(ride || walletCredit);
+}
+
+async function computeEarningsBreakdown(driverId: string) {
+  const [cashRides, mpesaCredits] = await Promise.all([
+    prisma.ride.aggregate({
+      where: { driverId, phase: "trip_ended", prepaid: false },
+      _sum: { price: true },
+    }),
+    prisma.walletTransaction.aggregate({
+      where: {
+        driverId,
+        status: "posted",
+        type: { in: ["shared_booking_credit", "credit"] },
+        amount: { gt: 0 },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+  const totalCash = cashRides._sum.price ?? 0;
+  const totalMpesa = mpesaCredits._sum.amount ?? 0;
+  return {
+    totalCash,
+    totalMpesa,
+    totalEarnings: totalCash + totalMpesa,
+  };
+}
+
+/** Deduct today's subscription from wallet when balance allows (idempotent per service day). */
+export async function maybeDeductDailySubscription(
+  db: WalletDb,
+  driverId: string,
+  source: "cashout" | "wallet_credit",
+): Promise<void> {
+  const serviceDate = nairobiServiceDate();
+  const vehicleType = await getDriverVehicleType(db, driverId);
+  const subscriptionAmount = dailySubscriptionAmountKes(vehicleType);
+  if (subscriptionAmount <= 0) return;
+  if (await subscriptionPaidForDate(db, driverId, serviceDate)) return;
+
+  const balance = await walletBalance(db, driverId);
+  if (balance < subscriptionAmount) return;
+
+  await db.walletTransaction.create({
+    data: {
+      id: `tx_${cuid()}`,
+      driverId,
+      type: "subscription_fee",
+      label: `Daily subscription · ${serviceDate}`,
+      amount: -subscriptionAmount,
+      status: "posted",
+      metadata: { serviceDate, source, vehicleType } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+export async function postDriverWalletCredit(
+  db: WalletDb,
+  input: {
+    driverId: string;
+    type: string;
+    label: string;
+    amount: number;
+    metadata?: Prisma.InputJsonValue;
+    rideId?: string;
+  },
+) {
+  const transaction = await db.walletTransaction.create({
+    data: {
+      id: `tx_${cuid()}`,
+      driverId: input.driverId,
+      type: input.type,
+      label: input.label,
+      amount: input.amount,
+      status: "posted",
+      rideId: input.rideId,
+      metadata: input.metadata,
+    },
+  });
+  await maybeDeductDailySubscription(db, input.driverId, "wallet_credit");
+  return transaction;
+}
+
+export async function getDriverWallet(driverId: string) {
+  const serviceDate = nairobiServiceDate();
+  const vehicleType = await getDriverVehicleType(prisma, driverId);
+  const subscriptionAmount = dailySubscriptionAmountKes(vehicleType);
+  const [transactions, balance, pendingPayout, earnings, subscriptionPaidToday, hasActivityToday] =
+    await Promise.all([
+      prisma.walletTransaction.findMany({
+        where: { driverId },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+      }),
+      walletBalance(prisma, driverId),
+      pendingPayoutAmount(prisma, driverId),
+      computeEarningsBreakdown(driverId),
+      subscriptionPaidForDate(prisma, driverId, serviceDate),
+      driverHasActivityToday(prisma, driverId, serviceDate),
+    ]);
   const subscriptionDue = subscriptionPaidToday ? 0 : subscriptionAmount;
   const maxCashoutAmount = Math.max(0, balance - subscriptionDue);
+  const subscriptionOwed =
+    !subscriptionPaidToday && hasActivityToday && balance < subscriptionAmount ? subscriptionAmount : 0;
   return {
     balance,
     availableBalance: balance,
     pendingPayout,
     subscriptionDue,
     maxCashoutAmount,
+    withdrawable: maxCashoutAmount,
     currency: "KES",
+    ...earnings,
+    subscriptionOwed,
     transactions: transactions.map(toWalletTransactionDto),
   };
 }
@@ -118,39 +240,30 @@ export async function getDriverWallet(driverId: string) {
 export async function cashout(driverId: string, input: { amount: number; method: string; phone: string }) {
   const reserveResult = await withDriverWalletLock(driverId, async () =>
     prisma.$transaction(async (db) => {
-      let balance = await walletBalance(db, driverId);
+      const vehicleType = await getDriverVehicleType(db, driverId);
+      const subscriptionAmount = dailySubscriptionAmountKes(vehicleType);
       const serviceDate = nairobiServiceDate();
-      const subscriptionAmount = dailySubscriptionAmountKes();
       const subscriptionPaidToday =
         subscriptionAmount <= 0 || (await subscriptionPaidForDate(db, driverId, serviceDate));
 
       if (!subscriptionPaidToday) {
-        if (balance < subscriptionAmount) {
+        const balanceBeforeFee = await walletBalance(db, driverId);
+        if (balanceBeforeFee < subscriptionAmount) {
           throw new AppError(
             "SUBSCRIPTION_DUE",
             409,
             "Daily driver subscription is due before cashout.",
             {
               subscriptionDue: subscriptionAmount,
-              balance,
+              balance: balanceBeforeFee,
               maxCashoutAmount: 0,
             },
           );
         }
-
-        await db.walletTransaction.create({
-          data: {
-            id: `tx_${cuid()}`,
-            driverId,
-            type: "subscription_fee",
-            label: `Daily subscription · ${serviceDate}`,
-            amount: -subscriptionAmount,
-            status: "posted",
-            metadata: { serviceDate, source: "cashout" } as Prisma.InputJsonValue,
-          },
-        });
-        balance -= subscriptionAmount;
+        await maybeDeductDailySubscription(db, driverId, "cashout");
       }
+
+      const balance = await walletBalance(db, driverId);
 
       if (input.amount > balance) {
         return {
@@ -343,23 +456,20 @@ export async function creditDriverForSharedBooking(
   const holdAmount = Math.round((gross * holdPercent) / 100);
   const driverAmount = gross - holdAmount;
 
-  await tx.walletTransaction.create({
-    data: {
-      id: `tx_${cuid()}`,
-      driverId: departure.driverId,
-      type: "shared_booking_credit",
-      label: sharedBookingCreditLabel(booking.pickup, booking.dropoff),
-      amount: driverAmount,
-      status: "posted",
-      metadata: {
-        bookingId: booking.id,
-        sharedDepartureId: booking.sharedDepartureId,
-        subtotal: gross,
-        platformFee: booking.platformFee,
-        holdbackPercent: holdPercent,
-        holdbackAmount: holdAmount,
-      } as Prisma.InputJsonValue,
-    },
+  await postDriverWalletCredit(tx, {
+    driverId: departure.driverId,
+    type: "shared_booking_credit",
+    label: sharedBookingCreditLabel(booking.pickup, booking.dropoff),
+    amount: driverAmount,
+    metadata: {
+      bookingId: booking.id,
+      sharedDepartureId: booking.sharedDepartureId,
+      subtotal: gross,
+      platformFee: booking.platformFee,
+      holdbackPercent: holdPercent,
+      holdbackAmount: holdAmount,
+      paymentChannel: "mpesa",
+    } as Prisma.InputJsonValue,
   });
 }
 

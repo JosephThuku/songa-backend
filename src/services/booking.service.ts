@@ -12,6 +12,7 @@ import {
 import { persistPlacePair } from "../lib/place-persist.js";
 import type { PlaceDto } from "../lib/responses.js";
 import { isMpesaConfigured } from "../config/mpesa.js";
+import { SHARED_SGR_UNPAID_BOOKING_MINUTES } from "../config/shared-rides.js";
 import { MpesaService } from "./mpesa.service.js";
 import { completeBookingPayment } from "./booking-payment.service.js";
 
@@ -200,11 +201,81 @@ export async function startPayment(input: StartPaymentInput) {
 }
 
 export async function getBooking(bookingId: string, passengerId: string) {
+  await expireStaleUnpaidSharedSgrBookings(passengerId);
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: bookingInclude });
   if (!booking || booking.passengerId !== passengerId) {
     throw new AppError("BOOKING_NOT_FOUND", 404, "Booking not found.");
   }
   return { booking: toBookingDto(booking) };
+}
+
+/** Cancel unpaid passenger bookings and release shared SGR seats. */
+export async function cancelPassengerBooking(bookingId: string, passengerId: string) {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: bookingInclude });
+  if (!booking || booking.passengerId !== passengerId) {
+    throw new AppError("BOOKING_NOT_FOUND", 404, "Booking not found.");
+  }
+  if (booking.status === "cancelled") {
+    return { booking: toBookingDto(booking) };
+  }
+  if (booking.status === "paid") {
+    throw new AppError("INVALID_BOOKING_STATUS", 409, "Paid bookings cannot be cancelled here.");
+  }
+  if (booking.status !== "pending_payment" && booking.status !== "failed") {
+    throw new AppError("INVALID_BOOKING_STATUS", 409, "Booking cannot be cancelled.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: { status: "cancelled" },
+    });
+    await tx.payment.updateMany({
+      where: { bookingId, status: "pending" },
+      data: { status: "failed" },
+    });
+    if (booking.sharedDepartureId) {
+      await tx.sharedDepartureSeat.updateMany({
+        where: { bookingId },
+        data: {
+          status: "available",
+          bookingId: null,
+          reservedById: null,
+          reservedAt: null,
+          expiresAt: null,
+          pickupLabel: null,
+          pickupLat: null,
+          pickupLng: null,
+        },
+      });
+    }
+  });
+
+  const updated = await prisma.booking.findUniqueOrThrow({
+    where: { id: bookingId },
+    include: bookingInclude,
+  });
+  return { booking: toBookingDto(updated) };
+}
+
+/** Fully cancel stale unpaid shared SGR bookings so seats return to the pool. */
+export async function expireStaleUnpaidSharedSgrBookings(passengerId?: string): Promise<number> {
+  const cutoff = new Date(Date.now() - SHARED_SGR_UNPAID_BOOKING_MINUTES * 60_000);
+  const stale = await prisma.booking.findMany({
+    where: {
+      product: "shared_sgr",
+      status: "pending_payment",
+      createdAt: { lt: cutoff },
+      ...(passengerId ? { passengerId } : {}),
+    },
+    select: { id: true, passengerId: true },
+  });
+
+  for (const row of stale) {
+    await cancelPassengerBooking(row.id, row.passengerId);
+  }
+
+  return stale.length;
 }
 
 export async function requirePaidBooking(bookingId: string, passengerId: string): Promise<void> {

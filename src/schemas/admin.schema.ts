@@ -53,6 +53,7 @@ export const AdminRideQuerySchema = PageQuerySchema.extend({
   passengerId: z.string().min(1).optional(),
   driverId: z.string().min(1).optional(),
   prepaid: z.coerce.boolean().optional(),
+  paymentChannel: z.enum(["cash", "mpesa"]).optional(),
 });
 export type AdminRideQuery = z.infer<typeof AdminRideQuerySchema>;
 

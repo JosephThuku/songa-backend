@@ -24,22 +24,46 @@ function reserveExpiresAt(): Date {
 /** Clear expired holds so seats return to available. */
 export async function releaseExpiredSeatHolds(departureId: string): Promise<void> {
   const now = new Date();
-  await prisma.sharedDepartureSeat.updateMany({
+  const expiredSeats = await prisma.sharedDepartureSeat.findMany({
     where: {
       departureId,
       status: "reserved",
       expiresAt: { lt: now },
     },
-    data: {
-      status: "available",
-      reservedById: null,
-      reservedAt: null,
-      expiresAt: null,
-      bookingId: null,
-      pickupLabel: null,
-      pickupLat: null,
-      pickupLng: null,
-    },
+    select: { bookingId: true },
+  });
+  const bookingIds = [
+    ...new Set(expiredSeats.map((seat) => seat.bookingId).filter((id): id is string => Boolean(id))),
+  ];
+
+  await prisma.$transaction(async (tx) => {
+    if (bookingIds.length > 0) {
+      await tx.booking.updateMany({
+        where: {
+          id: { in: bookingIds },
+          status: "pending_payment",
+        },
+        data: { status: "cancelled" },
+      });
+    }
+
+    await tx.sharedDepartureSeat.updateMany({
+      where: {
+        departureId,
+        status: "reserved",
+        expiresAt: { lt: now },
+      },
+      data: {
+        status: "available",
+        reservedById: null,
+        reservedAt: null,
+        expiresAt: null,
+        bookingId: null,
+        pickupLabel: null,
+        pickupLat: null,
+        pickupLng: null,
+      },
+    });
   });
 }
 

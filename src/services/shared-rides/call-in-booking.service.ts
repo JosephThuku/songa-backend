@@ -245,9 +245,11 @@ export async function createCallInBooking(
   const payInviteUrl = payInviteLink(payInviteToken);
 
   const routeLabel = `${departure.pickupLocation.name} → ${departure.dropoffLocation.name}`;
+  const seatLabel =
+    seatNumbers.length === 1 ? "your seat" : `${seatNumbers.length} seats`;
   const smsBody =
     `Songa: ${routeLabel} · departs ${toNairobiIso(departure.departureAt)}. ` +
-    `Pay KSh ${total} for your seat: ${payInviteUrl}`;
+    `Pay KSh ${total} for ${seatLabel}: ${payInviteUrl}`;
 
   let smsSent = false;
   try {

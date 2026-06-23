@@ -210,6 +210,8 @@ export async function adminListRides(query: AdminRideQuery) {
     ...(query.passengerId ? { passengerId: query.passengerId } : {}),
     ...(query.driverId ? { driverId: query.driverId } : {}),
     ...(query.prepaid !== undefined ? { prepaid: query.prepaid } : {}),
+    ...(query.paymentChannel === "cash" ? { prepaid: false } : {}),
+    ...(query.paymentChannel === "mpesa" ? { prepaid: true } : {}),
   };
   const [items, total] = await Promise.all([
     prisma.ride.findMany({

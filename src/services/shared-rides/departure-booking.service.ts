@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { SHARED_SGR_PLATFORM_FEE_KES } from "../../config/shared-rides.js";
 import { prisma } from "../../lib/prisma.js";
+import { expireStaleUnpaidSharedSgrBookings } from "../booking.service.js";
 import { persistBookingSeats, seatNumbersFromBooking, serializeBookingSeats } from "../../lib/booking-seats.js";
 import { persistPlacePair } from "../../lib/place-persist.js";
 import { sharedBookingPlaceInputs } from "../../lib/shared-booking-places.js";
@@ -52,6 +53,7 @@ export async function createSharedDepartureBooking(
   input: CreateSharedDepartureBookingInput,
 ): Promise<{ booking: SharedDepartureBookingDto }> {
   await releaseExpiredSeatHolds(departureId);
+  await expireStaleUnpaidSharedSgrBookings(passengerId);
 
   const unpaidBooking = await prisma.booking.findFirst({
     where: { passengerId, status: "pending_payment" },
@@ -207,6 +209,8 @@ function bookingRowToDto(row: {
 export async function listMySharedBookings(
   passengerId: string,
 ): Promise<{ bookings: MySharedBookingItemDto[] }> {
+  await expireStaleUnpaidSharedSgrBookings(passengerId);
+
   const rows = await prisma.booking.findMany({
     where: {
       passengerId,

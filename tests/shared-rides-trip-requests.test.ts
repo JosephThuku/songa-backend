@@ -5,7 +5,7 @@ import { buildOpenApiDocument } from "../src/lib/openapi.js";
 import { getNairobiParts, nairobiLocalToUtc, toNairobiIso } from "../src/lib/nairobi-time.js";
 import { prisma } from "../src/lib/prisma.js";
 import { seedSharedRidesCoast } from "../prisma/seeds/shared-rides-coast.js";
-import { buildTestApp, createAuthSession } from "./helpers.js";
+import { buildTestApp, createAuthSession, setupDriverForDispatch } from "./helpers.js";
 
 const PASSENGER_A = "+254713200001";
 const PASSENGER_B = "+254713200002";
@@ -224,6 +224,50 @@ describe("Shared rides trip requests (Phase 2)", () => {
     const mine = await request(app)
       .get("/api/shared-rides/trip-requests/mine")
       .set("Authorization", `Bearer ${token}`);
+    expect(mine.status).toBe(200);
+    expect(mine.body.items).toHaveLength(0);
+  });
+
+  it("cancels a matched trip request before the passenger pays", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+
+    const passengerSession = await createAuthSession(app, PASSENGER_A, "passenger");
+    const driverSession = await createAuthSession(app, "+254713200003", "driver", {
+      name: "Shared Driver",
+    });
+    await setupDriverForDispatch(app, driverSession.sessionToken, { type: "Van", seats: 14 });
+
+    const body = await nyaliToSgrTripRequestBody();
+    const created = await request(app)
+      .post("/api/shared-rides/trip-requests")
+      .set("Authorization", `Bearer ${passengerSession.sessionToken}`)
+      .send({ ...body, seatsRequested: 1 });
+    expect(created.status).toBe(201);
+    const tripRequestId = created.body.tripRequest.id as string;
+
+    const joined = await request(app)
+      .post(`/api/shared-rides/trip-requests/${tripRequestId}/join`)
+      .set("Authorization", `Bearer ${driverSession.sessionToken}`);
+    expect(joined.status).toBe(200);
+    const departureId = joined.body.departure.id as string;
+
+    const cancelled = await request(app)
+      .post(`/api/shared-rides/trip-requests/${tripRequestId}/cancel`)
+      .set("Authorization", `Bearer ${passengerSession.sessionToken}`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.reservation.status).toBe("cancelled");
+    expect(cancelled.body.tripRequest.status).toBe("cancelled");
+
+    const departure = await prisma.sharedDeparture.findUnique({
+      where: { id: departureId },
+      select: { status: true },
+    });
+    expect(departure?.status).toBe("cancelled");
+
+    const mine = await request(app)
+      .get("/api/shared-rides/trip-requests/mine")
+      .set("Authorization", `Bearer ${passengerSession.sessionToken}`);
     expect(mine.status).toBe(200);
     expect(mine.body.items).toHaveLength(0);
   });

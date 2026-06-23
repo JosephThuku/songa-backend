@@ -5,6 +5,9 @@
  */
 export const SHARED_SGR_PLATFORM_FEE_KES = 0;
 
+/** Unpaid shared SGR bookings are auto-cancelled after this many minutes. */
+export const SHARED_SGR_UNPAID_BOOKING_MINUTES = 25;
+
 /** % of seat subtotal withheld from driver wallet credit — not used for shared product today; optional future knob. */
 export function sharedRidesDriverHoldbackPercent(): number {
   const raw = process.env.SHARED_RIDES_DRIVER_HOLDBACK_PERCENT;

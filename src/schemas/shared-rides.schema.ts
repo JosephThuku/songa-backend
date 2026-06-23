@@ -869,8 +869,10 @@ registry.registerPath({
   tags: ["Shared rides"],
   summary: "Cancel my trip request reservation",
   description:
-    "Cancels the passenger reservation while the pool is still open (before a driver claims it). " +
-    "When no active reservations remain, the pooled trip request is closed.",
+    "Cancels the passenger reservation while the pool is open or after a driver match, " +
+    "as long as the passenger has not paid for seats yet. Pending seat holds and unpaid bookings " +
+    "on the matched van are released. When no active reservations remain and no paid bookings exist, " +
+    "the pooled trip request and driver departure are closed.",
   security: [{ bearerAuth: [] }, { cookieAuth: [] }],
   request: { params: TripRequestIdParamsSchema },
   responses: {
@@ -883,7 +885,8 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorEnvelopeSchema } },
     },
     409: {
-      description: "Pool already matched (`TRIP_REQUEST_NOT_CANCELLABLE`).",
+      description:
+        "Request not cancellable because the passenger already paid for seats (`TRIP_REQUEST_NOT_CANCELLABLE`).",
       content: { "application/json": { schema: ErrorEnvelopeSchema } },
     },
     ...authResponses,

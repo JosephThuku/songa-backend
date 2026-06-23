@@ -172,6 +172,49 @@ describe("bookings and prepaid rides", () => {
     expect(allowed.status).toBe(201);
   });
 
+  it("cancels a pending_payment booking and releases shared SGR seats", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+    const created = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+
+    const cancelled = await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/cancel`)
+      .set("Authorization", `Bearer ${passenger.token}`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.booking.status).toBe("cancelled");
+
+    const fetched = await request(app)
+      .get(`/api/bookings/${created.body.booking.id}`)
+      .set("Authorization", `Bearer ${passenger.token}`);
+    expect(fetched.body.booking.status).toBe("cancelled");
+  });
+
+  it("rejects cancelling a paid booking", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app, PASSENGER_PHONE);
+    process.env.ALLOW_DEV_PAYMENT_CONFIRM = "true";
+    const created = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody)
+      .expect(201);
+    await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/pay`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ provider: "mpesa" })
+      .expect(200);
+
+    const blocked = await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/cancel`)
+      .set("Authorization", `Bearer ${passenger.token}`);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe("INVALID_BOOKING_STATUS");
+  });
+
   it("requires a paid booking before prepaid ride request succeeds", async () => {
     const app = buildTestApp();
     const passenger = await login(app, PASSENGER_PHONE);

@@ -178,6 +178,72 @@ describe("Shared rides departure seats and booking (Phase 3)", () => {
     expect(conflict.body.error.code).toBe("SEAT_NOT_AVAILABLE");
   });
 
+  it("maps each passenger name to the correct seat on driver detail", async () => {
+    const app = buildTestApp();
+    await seedSharedRidesCoast(prisma);
+    const driverSession = await createAuthSession(app, "+254713300102", "driver");
+    await prisma.sharedDeparture.update({
+      where: { id: DEMO_DEPARTURE_ID },
+      data: { driverId: driverSession.user.id },
+    });
+    const tokenA = await loginPassenger(app, PASSENGER_A);
+    const tokenB = await loginPassenger(app, PASSENGER_B);
+
+    await request(app)
+      .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ seatNumbers: [1], pickup: { label: "Gate A", lat: -4.05, lng: 39.72 } });
+    const bookingA = await request(app)
+      .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/bookings`)
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ seatNumbers: [1] });
+    expect(bookingA.status).toBe(201);
+
+    await request(app)
+      .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/seats/reserve`)
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ seatNumbers: [2], pickup: { label: "Gate B", lat: -4.06, lng: 39.73 } });
+    const bookingB = await request(app)
+      .post(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}/bookings`)
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ seatNumbers: [2] });
+    expect(bookingB.status).toBe(201);
+
+    const passengerA = await prisma.user.findFirstOrThrow({
+      where: { phone: PASSENGER_A, role: "passenger" },
+    });
+    const passengerB = await prisma.user.findFirstOrThrow({
+      where: { phone: PASSENGER_B, role: "passenger" },
+    });
+    await prisma.user.update({
+      where: { id: passengerA.id },
+      data: { name: "Alice Wanjiku" },
+    });
+    await prisma.user.update({
+      where: { id: passengerB.id },
+      data: { name: "Bob Otieno" },
+    });
+    await prisma.sharedDepartureSeat.updateMany({
+      where: { departureId: DEMO_DEPARTURE_ID, seatNumber: { in: [1, 2] } },
+      data: { status: "paid" },
+    });
+
+    const driverView = await request(app)
+      .get(`/api/shared-rides/departures/${DEMO_DEPARTURE_ID}`)
+      .set("Authorization", `Bearer ${driverSession.sessionToken}`);
+    expect(driverView.status).toBe(200);
+    const seat1 = driverView.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 1);
+    const seat2 = driverView.body.departure.seats.find((s: { seatNumber: number }) => s.seatNumber === 2);
+    expect(seat1?.occupant?.name).toBe("Alice Wanjiku");
+    expect(seat2?.occupant?.name).toBe("Bob Otieno");
+
+    const rows = await prisma.bookingSeat.findMany({
+      where: { bookingId: { in: [bookingA.body.booking.id, bookingB.body.booking.id] } },
+      orderBy: { seatNumber: "asc" },
+    });
+    expect(rows.map((r) => r.seatNumber)).toEqual([1, 2]);
+  });
+
   it("releases held seats", async () => {
     const app = buildTestApp();
     await seedSharedRidesCoast(prisma);

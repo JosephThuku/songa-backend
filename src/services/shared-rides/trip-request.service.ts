@@ -370,6 +370,59 @@ async function loadPassengerActiveReservation(passengerId: string, tripRequestId
   return reservation;
 }
 
+async function releasePassengerMatchedDepartureHoldings(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  departureId: string,
+  passengerId: string,
+): Promise<void> {
+  const pendingBookings = await tx.booking.findMany({
+    where: {
+      passengerId,
+      sharedDepartureId: departureId,
+      status: "pending_payment",
+    },
+    select: { id: true },
+  });
+
+  for (const booking of pendingBookings) {
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: { status: "cancelled" },
+    });
+    await tx.sharedDepartureSeat.updateMany({
+      where: { bookingId: booking.id },
+      data: {
+        status: "available",
+        reservedById: null,
+        reservedAt: null,
+        expiresAt: null,
+        bookingId: null,
+        pickupLabel: null,
+        pickupLat: null,
+        pickupLng: null,
+      },
+    });
+  }
+
+  await tx.sharedDepartureSeat.updateMany({
+    where: {
+      departureId,
+      reservedById: passengerId,
+      status: "reserved",
+      bookingId: null,
+    },
+    data: {
+      status: "available",
+      reservedById: null,
+      reservedAt: null,
+      expiresAt: null,
+      pickupLabel: null,
+      pickupLat: null,
+      pickupLng: null,
+    },
+  });
+}
+
 async function recalculatePoolTripRequest(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   tripRequestId: string,
@@ -381,15 +434,39 @@ async function recalculatePoolTripRequest(
   const poolTotal = poolSeats._sum.seatsRequested ?? 0;
   const existing = await tx.sharedTripRequest.findUniqueOrThrow({
     where: { id: tripRequestId },
-    select: { status: true },
+    select: { status: true, matchedDepartureId: true },
   });
+
+  const data: {
+    seatsRequested: number;
+    status?: "cancelled";
+    matchedDepartureId?: null;
+  } = { seatsRequested: poolTotal };
+
+  if (poolTotal === 0) {
+    if (existing.status === "open") {
+      data.status = "cancelled";
+    } else if (existing.status === "matched" && existing.matchedDepartureId) {
+      const paidBookings = await tx.booking.count({
+        where: {
+          sharedDepartureId: existing.matchedDepartureId,
+          status: "paid",
+        },
+      });
+      if (paidBookings === 0) {
+        data.status = "cancelled";
+        data.matchedDepartureId = null;
+        await tx.sharedDeparture.update({
+          where: { id: existing.matchedDepartureId },
+          data: { status: "cancelled" },
+        });
+      }
+    }
+  }
 
   return tx.sharedTripRequest.update({
     where: { id: tripRequestId },
-    data: {
-      seatsRequested: poolTotal,
-      ...(poolTotal === 0 && existing.status === "open" ? { status: "cancelled" } : {}),
-    },
+    data,
     include: tripRequestInclude,
   });
 }
@@ -431,16 +508,31 @@ export async function cancelTripRequest(
   tripRequestId: string,
 ): Promise<CreateTripRequestResult> {
   const existing = await loadPassengerActiveReservation(passengerId, tripRequestId);
+  const matchedDepartureId = existing.tripRequest.matchedDepartureId;
 
-  if (existing.tripRequest.status !== "open") {
-    throw new AppError(
-      "TRIP_REQUEST_NOT_CANCELLABLE",
-      409,
-      "Cannot cancel after a driver has matched your pool. Manage your booking instead.",
-    );
+  if (matchedDepartureId) {
+    const paidBooking = await prisma.booking.findFirst({
+      where: {
+        passengerId,
+        sharedDepartureId: matchedDepartureId,
+        status: "paid",
+      },
+      select: { id: true },
+    });
+    if (paidBooking) {
+      throw new AppError(
+        "TRIP_REQUEST_NOT_CANCELLABLE",
+        409,
+        "You already paid for seats on this van. Open Trips to view your booking.",
+      );
+    }
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    if (matchedDepartureId) {
+      await releasePassengerMatchedDepartureHoldings(tx, matchedDepartureId, passengerId);
+    }
+
     const reservation = await tx.sharedTripRequestReservation.update({
       where: { id: existing.id },
       data: { status: "cancelled" },

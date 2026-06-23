@@ -23,6 +23,7 @@ import { toRideDto, type PlaceDto, type RideDto } from "../lib/responses.js";
 import { withDispatchLock } from "../lib/dispatch-lock.js";
 import { cancelOfferTimeout, scheduleOfferTimeout } from "../lib/offer-timeout.js";
 import { createNotification } from "./notification.service.js";
+import { postDriverWalletCredit } from "./wallet.service.js";
 
 const rideInclude = {
   passenger: true,
@@ -578,16 +579,15 @@ async function transitionDriverRide(
     if (phase === RidePhase.trip_ended && currentRide.prepaid) {
       // Only in-app collected rides become withdrawable wallet balance.
       // Pay-on-drop rides are paid directly to the driver and remain ride earnings/history.
-      await tx.walletTransaction.create({
-        data: {
-          id: `tx_${cuid()}`,
-          driverId,
-          rideId,
-          type: "credit",
-          label: tripCreditLabel(currentRide.pickup, currentRide.dropoff),
-          amount: currentRide.price,
-          status: "posted",
-        },
+      await postDriverWalletCredit(tx, {
+        driverId,
+        rideId,
+        type: "credit",
+        label: tripCreditLabel(currentRide.pickup, currentRide.dropoff),
+        amount: currentRide.price,
+        metadata: {
+          paymentChannel: currentRide.paymentMethod === "mpesa" ? "mpesa" : "in_app",
+        } as Prisma.InputJsonValue,
       });
     }
     await tx.rideEvent.create({

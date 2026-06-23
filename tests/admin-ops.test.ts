@@ -142,6 +142,37 @@ describe("Admin ops API", () => {
     expect(cashouts.body.transactions.some((tx: { id: string }) => tx.id === seed.walletTx.id)).toBe(true);
   });
 
+  it("filters admin rides by payment channel cash vs mpesa", async () => {
+    const app = buildTestApp();
+    const seed = await seedOpsData(app);
+    const admin = await loginAsAdmin(app);
+    const auth = adminAuth(admin.sessionToken);
+
+    await prisma.ride.create({
+      data: {
+        id: `ride_${cuid()}`,
+        passengerId: seed.passenger.user.id,
+        driverId: seed.driver.user.id,
+        phase: "trip_ended",
+        bookingMode: "seat_selection",
+        prepaid: true,
+        paymentMethod: "mpesa",
+        price: 600,
+        pickup: { label: "CBD", lat: -4.04, lng: 39.66 },
+        dropoff: { label: "Airport", lat: -4.03, lng: 39.59 },
+      },
+    });
+
+    const cashRides = await request(app).get("/api/admin/rides?paymentChannel=cash").set(auth);
+    expect(cashRides.status).toBe(200);
+    expect(cashRides.body.rides.every((r: { prepaid: boolean }) => !r.prepaid)).toBe(true);
+    expect(cashRides.body.rides.some((r: { id: string }) => r.id === seed.ride.id)).toBe(true);
+
+    const mpesaRides = await request(app).get("/api/admin/rides?paymentChannel=mpesa").set(auth);
+    expect(mpesaRides.status).toBe(200);
+    expect(mpesaRides.body.rides.every((r: { prepaid: boolean }) => r.prepaid)).toBe(true);
+  });
+
   it("updates driver onboarding status", async () => {
     const app = buildTestApp();
     const seed = await seedOpsData(app);

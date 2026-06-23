@@ -117,6 +117,19 @@ export async function updateDriverDepartureStatus(
     );
   }
 
+  if (status === "cancelled") {
+    const paidSeats = await prisma.sharedDepartureSeat.count({
+      where: { departureId, status: "paid" },
+    });
+    if (paidSeats > 0) {
+      throw new AppError(
+        "DEPARTURE_HAS_PAID_PASSENGERS",
+        409,
+        "A passenger has already paid for this van. Contact Songa support to cancel.",
+      );
+    }
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.sharedDeparture.update({
       where: { id: departureId },
@@ -127,7 +140,7 @@ export async function updateDriverDepartureStatus(
       await tx.sharedDepartureSeat.updateMany({
         where: {
           departureId,
-          status: { in: ["reserved", "paid"] },
+          status: "reserved",
         },
         data: {
           status: "available",
@@ -144,9 +157,25 @@ export async function updateDriverDepartureStatus(
       await tx.booking.updateMany({
         where: {
           sharedDepartureId: departureId,
-          status: { in: ["pending_payment", "paid"] },
+          status: "pending_payment",
         },
         data: { status: "cancelled" },
+      });
+
+      await tx.sharedTripRequestReservation.updateMany({
+        where: {
+          tripRequest: { matchedDepartureId: departureId },
+          status: "active",
+        },
+        data: { status: "cancelled" },
+      });
+
+      await tx.sharedTripRequest.updateMany({
+        where: {
+          matchedDepartureId: departureId,
+          status: { in: ["open", "matched"] },
+        },
+        data: { status: "cancelled", matchedDepartureId: null },
       });
     }
   });
