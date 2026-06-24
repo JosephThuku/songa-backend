@@ -109,6 +109,7 @@ router.post(
               ? (payment.gatewayResponse as Record<string, unknown>)
               : {}),
             stk_callback: req.body,
+            result_code: resultCode,
             result_desc: callback?.ResultDesc,
           } as Prisma.InputJsonValue,
         },

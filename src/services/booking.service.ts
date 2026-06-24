@@ -317,6 +317,40 @@ function toBookingDto(booking: Awaited<ReturnType<typeof prisma.booking.findUniq
   };
 }
 
+function mpesaFailureFromGateway(gatewayResponse: unknown): {
+  mpesaResultCode: number | null;
+  mpesaResultDesc: string | null;
+} {
+  if (!gatewayResponse || typeof gatewayResponse !== "object") {
+    return { mpesaResultCode: null, mpesaResultDesc: null };
+  }
+  const row = gatewayResponse as Record<string, unknown>;
+  const topCode = row.result_code;
+  const topDesc = row.result_desc;
+  const stkBody = (row.stk_callback as Record<string, unknown> | undefined)?.Body as
+    | Record<string, unknown>
+    | undefined;
+  const stkCallback = stkBody?.stkCallback as Record<string, unknown> | undefined;
+
+  const mpesaResultCode =
+    typeof topCode === "number"
+      ? topCode
+      : stkCallback?.ResultCode != null
+        ? Number(stkCallback.ResultCode)
+        : null;
+  const mpesaResultDesc =
+    typeof topDesc === "string" && topDesc.trim()
+      ? topDesc.trim()
+      : typeof stkCallback?.ResultDesc === "string" && stkCallback.ResultDesc.trim()
+        ? stkCallback.ResultDesc.trim()
+        : null;
+
+  return {
+    mpesaResultCode: mpesaResultCode != null && !Number.isNaN(mpesaResultCode) ? mpesaResultCode : null,
+    mpesaResultDesc,
+  };
+}
+
 function toPaymentDto(payment: {
   id: string;
   bookingId: string;
@@ -326,8 +360,11 @@ function toPaymentDto(payment: {
   reference: string;
   mpesaCheckoutRequestId?: string | null;
   transactionRef?: string | null;
+  gatewayResponse?: unknown;
   createdAt: Date;
 }) {
+  const failure =
+    payment.status === "failed" ? mpesaFailureFromGateway(payment.gatewayResponse) : null;
   return {
     id: payment.id,
     bookingId: payment.bookingId,
@@ -337,6 +374,8 @@ function toPaymentDto(payment: {
     reference: payment.reference,
     mpesaCheckoutRequestId: payment.mpesaCheckoutRequestId ?? null,
     transactionRef: payment.transactionRef ?? null,
+    mpesaResultCode: failure?.mpesaResultCode ?? null,
+    mpesaResultDesc: failure?.mpesaResultDesc ?? null,
     createdAt: payment.createdAt.toISOString(),
   };
 }

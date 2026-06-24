@@ -112,6 +112,46 @@ describe("M-Pesa STK integration", () => {
     await prisma.booking.delete({ where: { id: created.body.booking.id } });
   });
 
+  it("exposes Safaricom failure reason on GET booking after STK cancel", async () => {
+    const app = buildTestApp();
+    const passenger = await login(app);
+
+    const created = await request(app)
+      .post("/api/bookings")
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send(bookingBody);
+    expect(created.status).toBe(201);
+
+    const pay = await request(app)
+      .post(`/api/bookings/${created.body.booking.id}/pay`)
+      .set("Authorization", `Bearer ${passenger.token}`)
+      .send({ provider: "mpesa", phone: "+254712345678" });
+    expect(pay.status).toBe(200);
+
+    await request(app)
+      .post("/api/mpesa/stk-callback")
+      .send({
+        Body: {
+          stkCallback: {
+            CheckoutRequestID: "ws_CO_TEST123",
+            ResultCode: 1032,
+            ResultDesc: "Request Cancelled by user.",
+          },
+        },
+      })
+      .expect(200);
+
+    const fetched = await request(app)
+      .get(`/api/bookings/${created.body.booking.id}`)
+      .set("Authorization", `Bearer ${passenger.token}`);
+    expect(fetched.body.booking.payment.status).toBe("failed");
+    expect(fetched.body.booking.payment.mpesaResultCode).toBe(1032);
+    expect(fetched.body.booking.payment.mpesaResultDesc).toMatch(/cancelled/i);
+
+    await prisma.payment.deleteMany({ where: { bookingId: created.body.booking.id } });
+    await prisma.booking.delete({ where: { id: created.body.booking.id } });
+  });
+
   it("retries STK after cancel without reference conflict and completes via callback", async () => {
     let stkPushCount = 0;
     vi.stubGlobal(
