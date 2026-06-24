@@ -1,6 +1,7 @@
 import cuid from "cuid";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../lib/errors.js";
+import { mpesaPaymentTrace } from "../lib/mpesa-payment-log.js";
 import { computeFare, PLATFORM_FEE_KES } from "../lib/ride-pricing.js";
 import { prisma } from "../lib/prisma.js";
 import {
@@ -192,6 +193,14 @@ export async function startPayment(input: StartPaymentInput) {
         phone: phone.trim(),
       } as Prisma.InputJsonValue,
     },
+  });
+
+  mpesaPaymentTrace("stk.push.sent", {
+    bookingId,
+    paymentId: payment.id,
+    checkoutRequestId,
+    passengerId,
+    amount: Math.round(booking.total),
   });
 
   return {

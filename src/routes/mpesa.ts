@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { asyncHandler } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
+import { mpesaPaymentTrace } from "../lib/mpesa-payment-log.js";
 import { prisma } from "../lib/prisma.js";
 import { completeBookingPayment } from "../services/booking-payment.service.js";
 import {
@@ -43,11 +44,24 @@ router.post(
 
     if (!payment || payment.booking.status !== "pending_payment") {
       logger.warn({ checkoutRequestId }, "STK callback: no pending payment");
+      mpesaPaymentTrace("stk.callback.unmatched", {
+        checkoutRequestId,
+        bookingId: payment?.bookingId ?? null,
+        bookingStatus: payment?.booking.status ?? null,
+        paymentStatus: payment?.status ?? null,
+      });
       res.json({ ResultCode: 0, ResultDesc: "Success" });
       return;
     }
 
     const resultCode = callback?.ResultCode ?? -1;
+    mpesaPaymentTrace("stk.callback.received", {
+      checkoutRequestId,
+      bookingId: payment.bookingId,
+      paymentId: payment.id,
+      resultCode,
+      resultDesc: callback?.ResultDesc ?? null,
+    });
     if (resultCode === 0) {
       const items = callback?.CallbackMetadata?.Item ?? [];
       const receipt = items.find((i) => i.Name === "MpesaReceiptNumber")?.Value;
@@ -71,6 +85,19 @@ router.post(
         },
       });
     }
+
+    const updated = await prisma.booking.findUnique({
+      where: { id: payment.bookingId },
+      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    mpesaPaymentTrace("stk.callback.applied", {
+      checkoutRequestId,
+      bookingId: payment.bookingId,
+      paymentId: payment.id,
+      resultCode,
+      bookingStatus: updated?.status ?? null,
+      paymentStatus: updated?.payments[0]?.status ?? null,
+    });
 
     res.json({ ResultCode: 0, ResultDesc: "Success" });
   }),
