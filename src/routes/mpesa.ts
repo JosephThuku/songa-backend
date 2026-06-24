@@ -38,17 +38,17 @@ router.post(
     }
 
     const payment = await prisma.payment.findFirst({
-      where: { mpesaCheckoutRequestId: checkoutRequestId, status: "pending" },
+      where: { mpesaCheckoutRequestId: checkoutRequestId },
       include: { booking: true },
     });
 
-    if (!payment || payment.booking.status !== "pending_payment") {
-      logger.warn({ checkoutRequestId }, "STK callback: no pending payment");
+    if (!payment) {
+      logger.warn({ checkoutRequestId }, "STK callback: payment not found");
       mpesaPaymentTrace("stk.callback.unmatched", {
         checkoutRequestId,
-        bookingId: payment?.bookingId ?? null,
-        bookingStatus: payment?.booking.status ?? null,
-        paymentStatus: payment?.status ?? null,
+        bookingId: null,
+        bookingStatus: null,
+        paymentStatus: null,
       });
       res.json({ ResultCode: 0, ResultDesc: "Success" });
       return;
@@ -61,7 +61,36 @@ router.post(
       paymentId: payment.id,
       resultCode,
       resultDesc: callback?.ResultDesc ?? null,
+      bookingStatus: payment.booking.status,
+      paymentStatus: payment.status,
     });
+
+    if (payment.booking.status === "paid" || payment.status === "succeeded") {
+      mpesaPaymentTrace("stk.callback.applied", {
+        checkoutRequestId,
+        bookingId: payment.bookingId,
+        paymentId: payment.id,
+        resultCode,
+        bookingStatus: payment.booking.status,
+        paymentStatus: payment.status,
+        idempotent: true,
+      });
+      res.json({ ResultCode: 0, ResultDesc: "Success" });
+      return;
+    }
+
+    if (payment.booking.status !== "pending_payment") {
+      logger.warn({ checkoutRequestId, bookingId: payment.bookingId }, "STK callback: booking not payable");
+      mpesaPaymentTrace("stk.callback.unmatched", {
+        checkoutRequestId,
+        bookingId: payment.bookingId,
+        bookingStatus: payment.booking.status,
+        paymentStatus: payment.status,
+      });
+      res.json({ ResultCode: 0, ResultDesc: "Success" });
+      return;
+    }
+
     if (resultCode === 0) {
       const items = callback?.CallbackMetadata?.Item ?? [];
       const receipt = items.find((i) => i.Name === "MpesaReceiptNumber")?.Value;
@@ -70,7 +99,7 @@ router.post(
       await completeBookingPayment(payment.booking, payment, mpesaReceipt, {
         stk_callback: req.body,
       });
-    } else {
+    } else if (payment.status === "pending") {
       await prisma.payment.update({
         where: { id: payment.id },
         data: {

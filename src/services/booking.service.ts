@@ -82,7 +82,8 @@ export async function startPayment(input: StartPaymentInput) {
     throw new AppError("INVALID_BOOKING_STATUS", 409, "Booking is not pending payment.");
   }
 
-  const reference = booking.id.replace(/^BKG-/, "").slice(0, 12).toUpperCase() || `SONGA${cuid().slice(0, 8)}`;
+  const accountReference =
+    booking.id.replace(/^BKG-/, "").slice(0, 12).toUpperCase() || `SONGA${cuid().slice(0, 8)}`;
 
   let payment = await prisma.payment.findFirst({
     where: { bookingId, status: "pending" },
@@ -146,7 +147,7 @@ export async function startPayment(input: StartPaymentInput) {
   const result = await mpesa.stkPush({
     amount,
     phone: phone.trim(),
-    accountReference: reference,
+    accountReference,
     transactionDesc: "Songa booking",
   });
 
@@ -186,11 +187,11 @@ export async function startPayment(input: StartPaymentInput) {
   payment = await prisma.payment.update({
     where: { id: payment.id },
     data: {
-      reference,
       mpesaCheckoutRequestId: checkoutRequestId,
       gatewayResponse: {
         stk_init: data,
         phone: phone.trim(),
+        accountReference,
       } as Prisma.InputJsonValue,
     },
   });
@@ -343,10 +344,10 @@ function toPaymentDto(payment: {
 /** Test / admin helper — simulate STK success without Safaricom. */
 export async function simulateMpesaPaymentSuccess(checkoutRequestId: string, receipt = "SIMRECEIPT") {
   const payment = await prisma.payment.findFirst({
-    where: { mpesaCheckoutRequestId: checkoutRequestId, status: "pending" },
+    where: { mpesaCheckoutRequestId: checkoutRequestId },
     include: { booking: true },
   });
-  if (!payment) return null;
+  if (!payment || payment.booking.status !== "pending_payment") return null;
   await completeBookingPayment(payment.booking, payment, receipt, { simulated_stk: true });
   return payment.bookingId;
 }

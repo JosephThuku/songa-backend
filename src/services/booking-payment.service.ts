@@ -32,7 +32,7 @@ export async function completeBookingPayment(
       throw new AppError("INVALID_INPUT", 400, "Payment does not belong to this booking.");
     }
 
-    if (freshBooking.status === "paid" && freshPayment.status === "succeeded") {
+    if (freshBooking.status === "paid" || freshPayment.status === "succeeded") {
       return;
     }
 
@@ -40,7 +40,7 @@ export async function completeBookingPayment(
       throw new AppError("INVALID_BOOKING_STATUS", 409, "Booking is not pending payment.");
     }
 
-    if (freshPayment.status !== "pending") {
+    if (freshPayment.status !== "pending" && freshPayment.status !== "failed") {
       throw new AppError("INVALID_PAYMENT_STATUS", 409, "Payment is not pending.");
     }
 
