@@ -6,6 +6,7 @@ import { creditDriverForSharedBooking } from "./wallet.service.js";
 import {
   loadDepartureNotifyContext,
   notifyDriverSeatsPaid,
+  notifyGuestPassengerSharedBookingPaid,
 } from "./shared-rides/shared-rides-notify.js";
 
 const bookingPaymentSelect = {
@@ -83,6 +84,9 @@ export async function completeBookingPayment(
   if (booking.sharedDepartureId) {
     void notifyDriverSharedBookingPaid(booking.id, booking.sharedDepartureId).catch((err) => {
       console.warn("[shared-rides] driver seat paid notify failed", err);
+    });
+    void notifyGuestPassengerSharedBookingPaid(booking.id).catch((err) => {
+      console.warn("[shared-rides] guest passenger paid SMS failed", err);
     });
   }
 }

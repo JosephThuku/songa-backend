@@ -351,7 +351,7 @@ function mpesaFailureFromGateway(gatewayResponse: unknown): {
   };
 }
 
-function toPaymentDto(payment: {
+export function toPaymentDto(payment: {
   id: string;
   bookingId: string;
   provider: string;

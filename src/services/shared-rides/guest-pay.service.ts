@@ -2,7 +2,65 @@ import { AppError } from "../../lib/errors.js";
 import { verifyBookingPayInvite } from "../../lib/booking-pay-invite.js";
 import { bookingSeatInclude, seatNumbersFromBooking } from "../../lib/booking-seats.js";
 import { prisma } from "../../lib/prisma.js";
-import { startPayment } from "../booking.service.js";
+import { toNairobiIso } from "../../lib/nairobi-time.js";
+import { startPayment, toPaymentDto } from "../booking.service.js";
+
+const payInviteInclude = {
+  ...bookingSeatInclude,
+  passenger: { select: { id: true, phone: true, name: true } },
+  payments: { orderBy: { createdAt: "desc" as const }, take: 1 },
+  sharedDeparture: {
+    include: {
+      pickupLocation: { select: { name: true } },
+      dropoffLocation: { select: { name: true } },
+      sgrScheduleSlot: { select: { sgrEventTime: true } },
+    },
+  },
+};
+
+function toPayInviteBookingDto(booking: {
+  id: string;
+  status: string;
+  total: number;
+  currency: string;
+  passenger: { phone: string; name: string | null };
+  pickup: unknown;
+  payments?: unknown[];
+  sharedDeparture: {
+    departureAt: Date;
+    pickupLocation: { name: string };
+    dropoffLocation: { name: string };
+    sgrScheduleSlot: { sgrEventTime: string } | null;
+  } | null;
+}) {
+  const latestPayment = Array.isArray(booking.payments) ? booking.payments[0] : null;
+  const pickupLabel =
+    booking.pickup && typeof booking.pickup === "object" && "label" in booking.pickup
+      ? String((booking.pickup as { label?: string }).label ?? "")
+      : null;
+
+  return {
+    id: booking.id,
+    status: booking.status,
+    total: booking.total,
+    currency: booking.currency,
+    seats: seatNumbersFromBooking(booking) ?? [],
+    routeLabel: booking.sharedDeparture
+      ? `${booking.sharedDeparture.pickupLocation.name} → ${booking.sharedDeparture.dropoffLocation.name}`
+      : null,
+    departureAt: booking.sharedDeparture
+      ? toNairobiIso(booking.sharedDeparture.departureAt)
+      : null,
+    sgrEventTime: booking.sharedDeparture?.sgrScheduleSlot?.sgrEventTime ?? null,
+    pickupLabel: pickupLabel?.trim() ? pickupLabel.trim() : null,
+    passenger: {
+      phone: booking.passenger.phone,
+      name: booking.passenger.name,
+    },
+    payment: latestPayment ? toPaymentDto(latestPayment) : null,
+    requiresLogin: false,
+  };
+}
 
 export async function getPayInviteSummary(token: string) {
   let payload;
@@ -14,16 +72,7 @@ export async function getPayInviteSummary(token: string) {
 
   const booking = await prisma.booking.findUnique({
     where: { id: payload.bid },
-    include: {
-      ...bookingSeatInclude,
-      passenger: { select: { id: true, phone: true, name: true } },
-      sharedDeparture: {
-        include: {
-          pickupLocation: { select: { name: true } },
-          dropoffLocation: { select: { name: true } },
-        },
-      },
-    },
+    include: payInviteInclude,
   });
 
   if (!booking || booking.passengerId !== payload.sub) {
@@ -31,21 +80,7 @@ export async function getPayInviteSummary(token: string) {
   }
 
   return {
-    booking: {
-      id: booking.id,
-      status: booking.status,
-      total: booking.total,
-      currency: booking.currency,
-      seats: seatNumbersFromBooking(booking) ?? [],
-      routeLabel: booking.sharedDeparture
-        ? `${booking.sharedDeparture.pickupLocation.name} → ${booking.sharedDeparture.dropoffLocation.name}`
-        : null,
-      passenger: {
-        phone: booking.passenger.phone,
-        name: booking.passenger.name,
-      },
-      requiresLogin: false,
-    },
+    booking: toPayInviteBookingDto(booking),
   };
 }
 

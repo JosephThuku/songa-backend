@@ -1,4 +1,5 @@
 import { formatNairobiDepartureLabel } from "../../lib/nairobi-time.js";
+import { bookingSeatInclude, seatNumbersFromBooking } from "../../lib/booking-seats.js";
 import { logger } from "../../lib/logger.js";
 import { getSmsProvider } from "../../lib/sms.js";
 import { prisma } from "../../lib/prisma.js";
@@ -178,4 +179,61 @@ export async function loadDepartureNotifyContext(departureId: string): Promise<{
     driverId: departure.driverId,
     routeLabel: `${departure.pickupLocation.name} → ${departure.dropoffLocation.name}`,
   };
+}
+
+/** SMS confirmation for call-in / guest pay passengers who may not use the app. */
+export async function notifyGuestPassengerSharedBookingPaid(bookingId: string): Promise<void> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      passenger: { select: { id: true, phone: true, passwordHash: true } },
+      ...bookingSeatInclude,
+      sharedDeparture: {
+        include: {
+          pickupLocation: { select: { name: true } },
+          dropoffLocation: { select: { name: true } },
+          sgrScheduleSlot: { select: { sgrEventTime: true } },
+        },
+      },
+    },
+  });
+
+  if (!booking || booking.product !== "shared_sgr" || !booking.sharedDeparture) return;
+  if (booking.passenger.passwordHash) return;
+
+  const phone = booking.passenger.phone?.trim();
+  if (!phone) return;
+
+  const route = `${booking.sharedDeparture.pickupLocation.name} → ${booking.sharedDeparture.dropoffLocation.name}`;
+  const vanLeaves = formatNairobiDepartureLabel(booking.sharedDeparture.departureAt);
+  const trainTime = booking.sharedDeparture.sgrScheduleSlot?.sgrEventTime?.trim();
+  const seatNumbers = seatNumbersFromBooking(booking) ?? [];
+  const seatLabel =
+    seatNumbers.length === 0
+      ? ""
+      : seatNumbers.length === 1
+        ? ` Seat ${seatNumbers[0]}.`
+        : ` Seats ${seatNumbers.join(", ")}.`;
+  const pickup =
+    booking.pickup && typeof booking.pickup === "object" && "label" in booking.pickup
+      ? String((booking.pickup as { label?: string }).label ?? "").trim()
+      : "";
+  const pickupLine = pickup ? ` Pickup near ${pickup}.` : "";
+
+  let smsBody =
+    `Songa: Payment received — KSh ${booking.total} for ${route}. ` +
+    `Van leaves ${vanLeaves}.`;
+  if (trainTime) {
+    smsBody += ` SGR train at ${trainTime}.`;
+  }
+  smsBody += `${seatLabel}${pickupLine} We'll text you if anything changes before departure.`;
+
+  try {
+    const result = await getSmsProvider().send({ to: phone, body: smsBody });
+    if (!result.ok) {
+      logger.warn({ bookingId, error: result.error }, "shared-rides: guest paid SMS failed");
+    }
+  } catch (err) {
+    logger.warn({ err, bookingId }, "shared-rides: guest paid SMS error");
+  }
 }
