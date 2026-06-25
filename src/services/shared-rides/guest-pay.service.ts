@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { verifyBookingPayInvite } from "../../lib/booking-pay-invite.js";
 import { bookingSeatInclude, seatNumbersFromBooking } from "../../lib/booking-seats.js";
@@ -18,21 +19,9 @@ const payInviteInclude = {
   },
 };
 
-function toPayInviteBookingDto(booking: {
-  id: string;
-  status: string;
-  total: number;
-  currency: string;
-  passenger: { phone: string; name: string | null };
-  pickup: unknown;
-  payments?: unknown[];
-  sharedDeparture: {
-    departureAt: Date;
-    pickupLocation: { name: string };
-    dropoffLocation: { name: string };
-    sgrScheduleSlot: { sgrEventTime: string } | null;
-  } | null;
-}) {
+type PayInviteBookingRow = Prisma.BookingGetPayload<{ include: typeof payInviteInclude }>;
+
+function toPayInviteBookingDto(booking: PayInviteBookingRow) {
   const latestPayment = Array.isArray(booking.payments) ? booking.payments[0] : null;
   const pickupLabel =
     booking.pickup && typeof booking.pickup === "object" && "label" in booking.pickup
