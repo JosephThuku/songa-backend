@@ -37,10 +37,12 @@ export function verifyBookingPayInvite(token: string): BookingPayInvitePayload {
   return payload;
 }
 
+const PAY_INVITE_PATH = "/shared-rides/pay-invite";
+/** Public web app — guest pay links open in the browser (no app install). */
+const DEFAULT_PAY_INVITE_BASE_URL = "https://www.songa.africa";
+
 export function payInviteLink(token: string): string {
-  const webBase = process.env.PAY_INVITE_BASE_URL?.trim();
-  if (webBase) {
-    return `${webBase.replace(/\/$/, "")}/shared-rides/pay?token=${encodeURIComponent(token)}`;
-  }
-  return `songa://shared-rides/pay-invite?token=${encodeURIComponent(token)}`;
+  const webBase = process.env.PAY_INVITE_BASE_URL?.trim() || DEFAULT_PAY_INVITE_BASE_URL;
+  const query = `token=${encodeURIComponent(token)}`;
+  return `${webBase.replace(/\/$/, "")}${PAY_INVITE_PATH}?${query}`;
 }

@@ -185,8 +185,8 @@ For shared-ride **call-in** passengers who receive an SMS pay link. Token is a s
 
 Backend builds links via `payInviteLink()`:
 
-- App: `songa://shared-rides/pay-invite?token={jwt}`
-- Web (if `PAY_INVITE_BASE_URL` set): `{PAY_INVITE_BASE_URL}/shared-rides/pay?token={jwt}`
+- Web: `{PAY_INVITE_BASE_URL or https://www.songa.africa}/shared-rides/pay-invite?token={jwt}`
+- App deep link (`songa://…`) is not used for SMS — passengers pay in the browser until the native app is launched.
 
 ### Step 1 — Load summary (no auth)
 
